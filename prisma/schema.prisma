@@ -34,7 +34,7 @@ model User {
   creditLedger     CreditLedger[]
   referralsMade    Referral[]         @relation("ReferralReferrer")
   referralReceived Referral?           @relation("ReferralReferee")
-  lessonUnlocks    LessonUnlock[]
+  lessonUnlocks    LessonUnlock[]\n  redemptionCodes  RedemptionCode[]
 }
 
 model Course {
@@ -190,4 +190,20 @@ model LessonUnlock {
   lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 
   @@unique([userId, lessonId])
+}
+
+model RedemptionCode {
+  id         String    @id @default(cuid())
+  code       String    @unique
+  userId     String
+  kind       String
+  amount     Decimal   @db.Decimal(8, 2)
+  credits    Int       @default(0)
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  redeemedAt DateTime?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([expiresAt, redeemedAt])
 }
