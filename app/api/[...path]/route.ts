@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import prisma from "@/lib/db";
 import { signToken, verifyToken, hashCode, makeCode } from "@/lib/security.cjs";
 import { lessonAccess, validCreditAdjustment } from "@/lib/credits-rules.cjs";
-import { creditsForPayment, normaliseStudentNo } from "@/lib/redemption-rules.cjs";
+import { creditsForPayment, normaliseStudentNo, canRedeem } from "@/lib/redemption-rules.cjs";
 
 const allowedOrigins = new Set([
   "https://42-tech-lessons-and-tutorials.vercel.app",
@@ -285,7 +285,7 @@ export async function POST(req: NextRequest) {
       if(!/^42-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}$/.test(code))return fail(req,"This code is invalid, expired, already used, or belongs to another student.");
       const result=await prisma.$transaction(async tx=>{
         const current=await tx.redemptionCode.findFirst({where:{code,userId}});
-        if(!current||current.redeemedAt||current.expiresAt<=new Date())return {ok:false};
+        if(!current||!canRedeem({...current,ownerId:userId},new Date()))return {ok:false};
         const claimed=await tx.redemptionCode.updateMany({where:{id:current.id,userId,redeemedAt:null,expiresAt:{gt:new Date()}},data:{redeemedAt:new Date()}});
         if(!claimed.count)return {ok:false};
         if(current.kind==="credits"){
