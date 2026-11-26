@@ -170,13 +170,19 @@ export async function GET(req: NextRequest) {
         prisma.enrollment.findUnique({ where: { userId_courseId: { userId: String(claims.sub), courseId } } }),
         prisma.user.findUnique({ where: { id: String(claims.sub) }, select: { trialEndsAt: true } }),
       ]);
-      if (!trialIsActive(student?.trialEndsAt) && !enrollment?.active) return fail(req, "Your free trial has ended. Subscribe to this course to continue learning.", 403);
       const lessons = await prisma.lesson.findMany({ where: { courseId }, orderBy: { position: "asc" } });
-      const secure = await Promise.all(lessons.map(async l => ({
-        id: l.id, title: l.title, description: l.description, position: l.position,
-        videoUrl: l.videoUrl ? (await storageGetUrl(l.videoUrl)).url : null,
-        documentUrl: l.documentUrl ? (await storageGetUrl(l.documentUrl)).url : null,
-      })));
+      const secure = await Promise.all(lessons.map(async l => {
+        const unlocked=await prisma.lessonUnlock.findUnique({where:{userId_lessonId:{userId:String(claims.sub),lessonId:l.id}}});
+        const trial=trialIsActive(student?.trialEndsAt),subscribed=Boolean((await prisma.user.findUnique({where:{id:String(claims.sub)},select:{subscriptionUntil:true}}))?.subscriptionUntil && new Date((await prisma.user.findUnique({where:{id:String(claims.sub)},select:{subscriptionUntil:true}}))!.subscriptionUntil!)>new Date());
+        const activeCourse=Boolean(enrollment?.active),allowed=trial||activeCourse||unlocked||((l.creditCost||0)===0&&subscribed);
+        return {
+          id:l.id,title:l.title,description:l.description,position:l.position,creditCost:l.creditCost,
+          accessStatus:trial?"trial":activeCourse?"subscribed":unlocked?"unlocked":allowed?"included":"locked",
+          videoUrl:allowed&&l.videoUrl?(await storageGetUrl(l.videoUrl)).url:null,
+          documentUrl:allowed&&l.documentUrl?(await storageGetUrl(l.documentUrl)).url:null,
+          contentBody:allowed?l.contentBody:null,
+        };
+      }));
       return json(req, { lessons: secure });
     }
     return fail(req, "Not found", 404);
