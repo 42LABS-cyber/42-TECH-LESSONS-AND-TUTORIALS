@@ -39,6 +39,7 @@ model User {
   groupMemberships GroupMember[]
   groupMessages    GroupMessage[]
   groupsCreated    StudyGroup[]
+  directMessages   DirectMessage[]
 }
 
 model Course {
@@ -275,4 +276,14 @@ model GroupMessage {
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([groupId, createdAt])
+}
+
+model DirectMessage {
+  id        String   @id @default(cuid())
+  userId    String
+  body      String   @db.VarChar(1000)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
 }
