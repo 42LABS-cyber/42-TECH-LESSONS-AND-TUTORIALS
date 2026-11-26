@@ -71,6 +71,7 @@ export async function GET(req: NextRequest) {
   const path = parts.join("/");
   try {
     if (path === "health") {
+    if (path.startsWith("admin/") && !requireClaims(req, true)) return fail(req, "Administrator sign-in required.", 401);
       await prisma.$queryRaw`SELECT 1`;
       return json(req, { ok: true, service: "42 TECH API", database: "connected" });
     }
@@ -161,6 +162,7 @@ export async function POST(req: NextRequest) {
   const path = parts.join("/");
   try {
     if (path === "auth/register") {
+    if (path.startsWith("admin/") && path !== "admin/login" && !requireClaims(req, true)) return fail(req, "Administrator sign-in required.", 401);
       const body = await req.json();
       const name = String(body.name || "").trim(), email = String(body.email || "").trim().toLowerCase();
       const password = String(body.password || ""), phone = String(body.phone || "").trim();
@@ -333,6 +335,7 @@ export async function PATCH(req: NextRequest) {
   const path = parts.join("/");
   try {
     const body = await req.json();
+    if (path.startsWith("admin/") && !requireClaims(req, true)) return fail(req, "Administrator sign-in required.", 401);
     if (path === "admin/courses") {
       const id = String(body.id || ""), data: any = {};
       if (body.title !== undefined) { data.title = String(body.title); data.slug = slugify(data.title) + "-" + crypto.randomBytes(3).toString("hex"); }
@@ -355,6 +358,7 @@ export async function DELETE(req: NextRequest) {
   const parts = new URL(req.url).pathname.split("/").filter(Boolean).slice(1);
   try {
     if (parts.join("/") === "admin/courses") {
+    if (parts.join("/").startsWith("admin/") && !requireClaims(req, true)) return fail(req, "Administrator sign-in required.", 401);
       const id = new URL(req.url).searchParams.get("id") || "";
       await prisma.course.delete({ where: { id } });
       return json(req, { deleted: true });
