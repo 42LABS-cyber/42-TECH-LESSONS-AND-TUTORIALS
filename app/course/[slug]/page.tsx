@@ -1,4 +1,5 @@
 import Link from "next/link";
+import prisma from "@/lib/db";
 
 const courses = {
   web: { name:"Web Development Fundamentals", level:"Beginner", lessons:12, price:3, summary:"Build responsive websites with HTML, CSS and JavaScript.", learn:["Write clean HTML pages","Style them with CSS","Make layouts that work on phones and computers","Add interactivity with JavaScript","Publish a real website online"], modules:[["Your first web page","How websites work; HTML structure, text, links and images."],["Styling with CSS","Colours, fonts, spacing and the box model."],["Responsive layouts","Flexbox, grid and designing for small screens."],["JavaScript basics","Variables, functions, events and the DOM."],["Project and publishing","Build a personal site and put it online."]], requirements:"A computer or smartphone and internet. No experience needed.", audience:"Absolute beginners, students, and anyone who wants a website for themselves or a small business." },
@@ -12,6 +13,20 @@ const courses = {
 type Slug = keyof typeof courses;
 export default async function CoursePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug: rawSlug } = await params;
+  const dbCourse = await prisma.course.findUnique({where:{slug:rawSlug},include:{modules:{orderBy:{position:"asc"},include:{lessons:{where:{status:"PUBLISHED"},orderBy:{position:"asc"}}}},lessons:{where:{status:"PUBLISHED"},orderBy:{position:"asc"}}}});
+  if(dbCourse) return <main className="content-page">
+    <Link className="back-link" href="/">← All courses</Link>
+    <div className="page-eyebrow">42 TECH / PUBLISHED COURSE</div>
+    <h1>{dbCourse.title}</h1><p className="lead">{dbCourse.description}</p>
+    <div className="course-facts"><span>{dbCourse.level||"Self-paced"}</span><span>{dbCourse.lessons.length} lessons</span><span>{dbCourse.category}</span><span>${Number(dbCourse.price).toFixed(2)} per month</span></div>
+    <p><Link className="page-button" href="/">Sign in or register to start learning</Link></p>
+    <section className="content-panel"><h2>Course curriculum</h2>
+      {dbCourse.modules.length?dbCourse.modules.map((m:any,i:number)=><details key={m.id} open={i===0}><summary>Module {i+1}: {m.title}</summary>{m.lessons.length?<ol>{m.lessons.map((l:any)=><li key={l.id}>{l.title}{l.description?<p>{l.description}</p>:null}</li>)}</ol>:<p>Lessons will be added to this module.</p>}</details>):dbCourse.lessons.length?<ol>{dbCourse.lessons.map((l:any)=><li key={l.id}><b>{l.title}</b>{l.description?<p>{l.description}</p>:null}</li>)}</ol>:<p>Course lessons are being prepared.</p>}
+    </section>
+    {dbCourse.sourceName||dbCourse.sourceUrl?<section className="content-panel"><h2>Source and attribution</h2>{dbCourse.sourceName?<p>Learning source: {dbCourse.sourceName}</p>:null}{dbCourse.sourceUrl?<p><a href={dbCourse.sourceUrl} target="_blank" rel="noreferrer">Visit original learning source ↗</a></p>:null}</section>:null}
+    <section className="content-panel"><h2>Access and pricing</h2><p>New students receive seven days of trial access. After the trial, this course costs ${Number(dbCourse.price).toFixed(2)} per month. Payments are reviewed manually before access is activated.</p></section>
+    <footer className="content-footer"><Link href="/community">Student community</Link><Link href="/legal#terms">Terms</Link><Link href="/legal#privacy">Privacy</Link><span>© 42 TECH LESSONS & TUTORIALS</span></footer>
+  </main>;
   const course = courses[rawSlug as Slug] || courses.web;
   const other = Object.entries(courses).filter(([slug]) => slug !== rawSlug);
   return <main className="content-page">
