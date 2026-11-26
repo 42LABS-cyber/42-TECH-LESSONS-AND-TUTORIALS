@@ -1,0 +1,23 @@
+[
+  {
+    "label": "SAMPLE STORY — NOT A REAL TESTIMONIAL",
+    "displayName": "Sample learner 01",
+    "course": "Web Development",
+    "story": "I practised building web pages and learned how HTML and CSS work together.",
+    "fictional": true
+  },
+  {
+    "label": "SAMPLE STORY — NOT A REAL TESTIMONIAL",
+    "displayName": "Sample learner 02",
+    "course": "Python Programming",
+    "story": "Working through small Python exercises helped me understand variables, loops and functions.",
+    "fictional": true
+  },
+  {
+    "label": "SAMPLE STORY — NOT A REAL TESTIMONIAL",
+    "displayName": "Sample learner 03",
+    "course": "Graphic Design with Canva",
+    "story": "The design exercises showed me how to organise text, colour and images into a clear poster.",
+    "fictional": true
+  }
+]
