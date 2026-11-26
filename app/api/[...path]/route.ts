@@ -172,32 +172,7 @@ export async function POST(req: NextRequest) {
       const token = signToken({ sub: user.id, role: user.role, email: user.email }, process.env.AUTH_SECRET || "");
       return json(req, { message: "Your seven-day all-course free trial has started.", token, user: { id: user.id, studentNo: user.studentNo, name: user.name, email: user.email, role: user.role, registrationPaid: true, trialEndsAt, trialActive: true }, studentNo: user.studentNo, trialEndsAt, trialDays: 7, currency: "USD" }, 201);
     }
-    if (path === "admin/passcode-login") { return fail(req, "Passcode login has been removed.", 410); /*
-      const body = await req.json();
-      const passcode = String(body.passcode || "");
-      const passcodeHash = process.env.ADMIN_ACCESS_PASSPHRASE_HASH || "";
-      if (!passcodeHash) return fail(req, "Admin passcode access is not configured.", 503);
-      const forwarded = req.headers.get("x-forwarded-for") || "unknown";
-      const clientIp = forwarded.split(",")[0].trim().slice(0, 100);
-      const ipHash = crypto.createHash("sha256").update(`${clientIp}:${process.env.AUTH_SECRET || ""}`).digest("hex");
-      const attemptKey = `admin-login:${ipHash}`;
-      const attemptRow = await prisma.siteSetting.findUnique({ where: { key: attemptKey } });
-      let attempt: { failures: number; lockedUntil: number } = { failures: 0, lockedUntil: 0 };
-      try { if (attemptRow?.value) attempt = { ...attempt, ...JSON.parse(attemptRow.value) }; } catch {}
-      if (attempt.lockedUntil > Date.now()) return fail(req, "Too many attempts. Try again in 15 minutes.", 429);
-      const valid = passcode.length <= 256 && await bcrypt.compare(passcode, passcodeHash);
-      if (!valid) {
-        const failures = attempt.failures + 1;
-        const next = { failures: failures >= 5 ? 0 : failures, lockedUntil: failures >= 5 ? Date.now() + 15 * 60 * 1000 : 0 };
-        await prisma.siteSetting.upsert({ where: { key: attemptKey }, create: { key: attemptKey, value: JSON.stringify(next) }, update: { value: JSON.stringify(next) } });
-        return fail(req, "Passcode is incorrect.", 401);
-      }
-      if (attemptRow) await prisma.siteSetting.delete({ where: { key: attemptKey } });
-      const admin = await prisma.user.findFirst({ where: { role: "ADMIN" } });
-      if (!admin) return fail(req, "No administrator account is configured.", 503);
-      const token = signToken({ sub: admin.id, role: admin.role, email: admin.email }, process.env.AUTH_SECRET || "");
-      return json(req, { token, user: { id: admin.id, email: admin.email, role: admin.role } });
-    } */
+    if (path === "admin/passcode-login") return fail(req, "Passcode login has been removed.", 410);
     if (path === "auth/login" || path === "admin/login") {
       const body = await req.json();
       const email = String(body.email || "").trim().toLowerCase(), password = String(body.password || "");
@@ -378,7 +353,6 @@ export async function PATCH(req: NextRequest) {
 }
 export async function DELETE(req: NextRequest) {
   const parts = new URL(req.url).pathname.split("/").filter(Boolean).slice(1);
-  if (!await adminUser(req)) return fail(req, "Admin sign-in required", 401);
   try {
     if (parts.join("/") === "admin/courses") {
       const id = new URL(req.url).searchParams.get("id") || "";
