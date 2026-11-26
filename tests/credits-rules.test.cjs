@@ -1,0 +1,9 @@
+const test=require("node:test");
+const assert=require("node:assert/strict");
+const {lessonAccess,validCreditAdjustment}=require("../lib/credits-rules.cjs");
+test("trial opens every lesson",()=>assert.equal(lessonAccess({trialActive:true,cost:500}),"trial"));
+test("active course subscription opens the course",()=>assert.equal(lessonAccess({courseActive:true,cost:500}),"subscribed"));
+test("an individually unlocked lesson stays open",()=>assert.equal(lessonAccess({unlocked:true,cost:500}),"unlocked"));
+test("zero-cost lessons require a subscription after trial",()=>assert.equal(lessonAccess({cost:0,subscriptionActive:true}),"included"));
+test("locked paid lessons remain locked without credits or subscription",()=>assert.equal(lessonAccess({cost:50}),"locked"));
+test("credit adjustments reject negative balances and non-integers",()=>{assert.equal(validCreditAdjustment(20,-20),true);assert.equal(validCreditAdjustment(20,-21),false);assert.equal(validCreditAdjustment(10,1.5),false);});
