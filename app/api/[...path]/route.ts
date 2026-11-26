@@ -5,7 +5,7 @@ import prisma from "@/lib/db";
 import { signToken, verifyToken, hashCode, makeCode } from "@/lib/security.cjs";
 import { lessonAccess, validCreditAdjustment } from "@/lib/credits-rules.cjs";
 import { creditsForPayment, normaliseStudentNo, canRedeem } from "@/lib/redemption-rules.cjs";
-import { validateGroupName, validateGroupMessage } from "@/lib/community-rules.cjs";
+import { validateGroupName, validateGroupMessage, validateDirectMessage } from "@/lib/community-rules.cjs";
 
 const allowedOrigins = new Set([
   "https://42-tech-lessons-and-tutorials.vercel.app",
@@ -98,6 +98,11 @@ export async function GET(req: NextRequest) {
       const member=await prisma.groupMember.findUnique({where:{groupId_userId:{groupId,userId}}});
       if(!member&&claims.role!=="ADMIN")return fail(req,"Join this group to view its messages.",403);
       const messages=await prisma.groupMessage.findMany({where:{groupId},orderBy:{createdAt:"desc"},take:100,include:{user:{select:{id:true,name:true,studentNo:true}}}});
+      return json(req,{messages:messages.reverse()});
+    }
+    if (path === "community/direct/messages") {
+      const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
+      const messages=await prisma.directMessage.findMany({orderBy:{createdAt:"desc"},take:100,include:{user:{select:{id:true,name:true,studentNo:true}}}});
       return json(req,{messages:messages.reverse()});
     }
     if (path === "settings/public") {
@@ -294,6 +299,13 @@ export async function POST(req: NextRequest) {
       const member=await prisma.groupMember.findUnique({where:{groupId_userId:{groupId,userId}}});
       if(!member&&claims.role!=="ADMIN")return fail(req,"Join this group before sending messages.",403);
       const saved=await prisma.groupMessage.create({data:{groupId,userId,body:message},include:{user:{select:{id:true,name:true,studentNo:true}}}});
+      return json(req,{message:saved},201);
+    }
+    if (path === "community/direct/messages") {
+      const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
+      const body=await req.json(),message=String(body.message||"").trim(),userId=String(claims.sub);
+      if(!validateDirectMessage(message))return fail(req,"Message must be 1–1000 characters.");
+      const saved=await prisma.directMessage.create({data:{userId,body:message},include:{user:{select:{id:true,name:true,studentNo:true}}}});
       return json(req,{message:saved},201);
     }
     if (path === "student/credits/share") {
