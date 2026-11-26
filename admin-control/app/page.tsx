@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import CreditsPanel from "./credits-panel";
 
 type Payment = { id:string; amount:string|number; purpose:string; status:string; reference?:string|null; proofUrl?:string|null; user:{id:string;studentNo:string;name:string;email:string;phone?:string|null}; course?:{id:string;title:string}|null; createdAt:string };
-type Course = { id:string;title:string;description:string;category:string;price:string|number;published:boolean;lessons:any[] };
+type Course = { id:string;title:string;description:string;category:string;price:string|number;published:boolean;lessons:any[];modules?:any[] };
 const API="https://42-tech-lessons-and-tutorials.vercel.app/api";
 const menu=["Overview","Payments","Courses & lessons","Students","Credits & referrals","Notifications","Website settings","Website content"];
 export default function AdminPage(){
