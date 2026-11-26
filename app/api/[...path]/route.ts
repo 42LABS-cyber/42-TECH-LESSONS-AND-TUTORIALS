@@ -138,6 +138,10 @@ export async function GET(req: NextRequest) {
       const referrals=await prisma.referral.findMany({orderBy:{createdAt:"desc"},take:200,include:{referrer:{select:{name:true,email:true,referralCode:true}},referee:{select:{name:true,email:true,studentNo:true}}}});
       return json(req,{referrals});
     }
+    if (path === "admin/community/groups") {
+      const groups=await prisma.studyGroup.findMany({orderBy:{createdAt:"desc"},include:{_count:{select:{members:true,messages:true}},createdBy:{select:{name:true,studentNo:true}}}});
+      return json(req,{groups:groups.map(g=>({...g,memberCount:g._count.members,messageCount:g._count.messages}))});
+    }
     if (path === "admin/overview") {
       const [students, pendingPayments, courses, visits, suggestions, comments] = await Promise.all([
         prisma.user.count({ where: { role: "STUDENT" } }), prisma.payment.count({ where: { status: "PENDING" } }),
@@ -563,6 +567,11 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const parts = new URL(req.url).pathname.split("/").filter(Boolean).slice(1);
   try {
+    if (parts.join("/") === "admin/community/groups") {
+      const id=new URL(req.url).searchParams.get("id")||"";
+      if(!id)return fail(req,"Group ID is required.");
+      await prisma.studyGroup.delete({where:{id}});return json(req,{deleted:true});
+    }
     if (parts.join("/") === "community/messages") {
       const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
       const id=new URL(req.url).searchParams.get("id")||"",userId=String(claims.sub);
