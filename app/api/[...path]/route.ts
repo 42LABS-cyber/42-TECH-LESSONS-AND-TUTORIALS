@@ -33,11 +33,6 @@ function requireClaims(req: NextRequest, admin = false) {
   if (admin && claims.role !== "ADMIN") return null;
   return claims;
 }
-async function adminUser(req: NextRequest) {
-  const claims = requireClaims(req, true);
-  if (!claims) return null;
-  return prisma.user.findUnique({ where: { id: String(claims.sub) } });
-}
 async function storagePutUrl(path: string, contentType: string, visibility: "private" | "public" = "private") {
   const endpoint = process.env.PRODUCTOS_STORAGE_ENDPOINT;
   const token = process.env.PRODUCTOS_STORAGE_TOKEN;
@@ -88,7 +83,6 @@ export async function GET(req: NextRequest) {
       return json(req, { settings: Object.fromEntries(rows.map(row => [row.key, row.value])) });
     }
     if (path === "admin/overview") {
-      if (!await adminUser(req)) return fail(req, "Admin sign-in required", 401);
       const [students, pendingPayments, courses, visits, suggestions, comments] = await Promise.all([
         prisma.user.count({ where: { role: "STUDENT" } }), prisma.payment.count({ where: { status: "PENDING" } }),
         prisma.course.count({ where: { published: true } }), prisma.visitEvent.count(),
@@ -97,12 +91,10 @@ export async function GET(req: NextRequest) {
       return json(req, { students, pendingPayments, courses, visits, suggestions, comments });
     }
     if (path === "admin/payments") {
-      if (!await adminUser(req)) return fail(req, "Admin sign-in required", 401);
       const payments = await prisma.payment.findMany({ orderBy: { createdAt: "desc" }, include: { user: { select: { id: true, studentNo: true, name: true, email: true, phone: true } }, course: { select: { id: true, title: true } } }, take: 200 });
       return json(req, { payments });
     }
     if (path.startsWith("admin/payments/proof/")) {
-      if (!await adminUser(req)) return fail(req, "Admin sign-in required", 401);
       const paymentId = parts[3];
       const payment = await prisma.payment.findUnique({ where: { id: paymentId } });
       if (!payment?.proofUrl) return fail(req, "Payment proof is not attached", 404);
@@ -110,17 +102,14 @@ export async function GET(req: NextRequest) {
       return json(req, { url: link.url });
     }
     if (path === "admin/courses") {
-      if (!await adminUser(req)) return fail(req, "Admin sign-in required", 401);
       const courses = await prisma.course.findMany({ orderBy: { createdAt: "desc" }, include: { lessons: { orderBy: { position: "asc" } }, _count: { select: { enrollments: true, payments: true } } } });
       return json(req, { courses });
     }
     if (path === "admin/students") {
-      if (!await adminUser(req)) return fail(req, "Admin sign-in required", 401);
       const students = await prisma.user.findMany({ where: { role: "STUDENT" }, orderBy: { createdAt: "desc" }, select: { id: true, studentNo: true, name: true, email: true, phone: true, registrationPaid: true, trialEndsAt: true, createdAt: true, enrollments: { include: { course: { select: { title: true } } } }, payments: { select: { amount: true, purpose: true, status: true } } }, take: 500 });
       return json(req, { students });
     }
     if (path === "admin/feedback") {
-      if (!await adminUser(req)) return fail(req, "Admin sign-in required", 401);
       const [suggestions, comments] = await Promise.all([
         prisma.suggestion.findMany({ orderBy: { createdAt: "desc" }, include: { user: { select: { name: true, email: true, studentNo: true } } }, take: 200 }),
         prisma.comment.findMany({ orderBy: { createdAt: "desc" }, include: { user: { select: { name: true, email: true, studentNo: true } } }, take: 200 }),
@@ -128,7 +117,6 @@ export async function GET(req: NextRequest) {
       return json(req, { suggestions, comments });
     }
     if (path === "admin/settings") {
-      if (!await adminUser(req)) return fail(req, "Admin sign-in required", 401);
       const rows = await prisma.siteSetting.findMany();
       return json(req, { settings: Object.fromEntries(rows.map(r => [r.key, r.value])) });
     }
@@ -184,7 +172,7 @@ export async function POST(req: NextRequest) {
       const token = signToken({ sub: user.id, role: user.role, email: user.email }, process.env.AUTH_SECRET || "");
       return json(req, { message: "Your seven-day all-course free trial has started.", token, user: { id: user.id, studentNo: user.studentNo, name: user.name, email: user.email, role: user.role, registrationPaid: true, trialEndsAt, trialActive: true }, studentNo: user.studentNo, trialEndsAt, trialDays: 7, currency: "USD" }, 201);
     }
-    if (path === "admin/passcode-login") {
+    if (path === "admin/passcode-login") { return fail(req, "Passcode login has been removed.", 410); /*
       const body = await req.json();
       const passcode = String(body.passcode || "");
       const passcodeHash = process.env.ADMIN_ACCESS_PASSPHRASE_HASH || "";
@@ -209,7 +197,7 @@ export async function POST(req: NextRequest) {
       if (!admin) return fail(req, "No administrator account is configured.", 503);
       const token = signToken({ sub: admin.id, role: admin.role, email: admin.email }, process.env.AUTH_SECRET || "");
       return json(req, { token, user: { id: admin.id, email: admin.email, role: admin.role } });
-    }
+    } */
     if (path === "auth/login" || path === "admin/login") {
       const body = await req.json();
       const email = String(body.email || "").trim().toLowerCase(), password = String(body.password || "");
@@ -223,7 +211,7 @@ export async function POST(req: NextRequest) {
       return fail(req, "Administrator account creation is disabled.", 410);
     }
     if (path === "payments/upload-url" || path === "admin/uploads/url") {
-      const claims = requireClaims(req, path.startsWith("admin/"));
+      const claims = path.startsWith("admin/") ? { sub: "public-admin" } : requireClaims(req);
       if (!claims) return fail(req, "Sign in required", 401);
       const body = await req.json();
       const filename = String(body.filename || "upload.bin"), contentType = String(body.contentType || "application/octet-stream");
@@ -314,14 +302,12 @@ export async function POST(req: NextRequest) {
       return json(req, { tracked: true });
     }
     if (path === "admin/payments/verify") {
-      if (!await adminUser(req)) return fail(req, "Admin sign-in required", 401);
       const body = await req.json(), id = String(body.paymentId || ""), status = body.status === "REJECTED" ? "REJECTED" : "PAID";
       const payment = await prisma.payment.update({ where: { id }, data: { status, verifiedAt: status === "PAID" ? new Date() : null } });
       if (status === "PAID" && payment.purpose === "REGISTRATION") await prisma.user.update({ where: { id: payment.userId }, data: { registrationPaid: true } });
       return json(req, { updated: true, status });
     }
     if (path === "admin/access-codes") {
-      if (!await adminUser(req)) return fail(req, "Admin sign-in required", 401);
       const body = await req.json(), paymentId = String(body.paymentId || "");
       const payment = await prisma.payment.findUnique({ where: { id: paymentId } });
       if (!payment || payment.status !== "PAID" || payment.purpose !== "COURSE" || !payment.courseId) return fail(req, "Only verified course payments can receive an access code.", 400);
@@ -332,7 +318,6 @@ export async function POST(req: NextRequest) {
       return json(req, { code, studentId: payment.userId, courseId: payment.courseId }, 201);
     }
     if (path === "admin/courses") {
-      if (!await adminUser(req)) return fail(req, "Admin sign-in required", 401);
       const body = await req.json(), title = String(body.title || "").trim(), description = String(body.description || "").trim();
       const price = Number(body.price);
       if (title.length < 3 || !Number.isFinite(price) || price < 1 || price > 10) return fail(req, "Course title is required and price must be between $1 and $10.");
@@ -340,7 +325,6 @@ export async function POST(req: NextRequest) {
       return json(req, { course }, 201);
     }
     if (path === "admin/lessons") {
-      if (!await adminUser(req)) return fail(req, "Admin sign-in required", 401);
       const body = await req.json(), courseId = String(body.courseId || ""), title = String(body.title || "").trim();
       const course = await prisma.course.findUnique({ where: { id: courseId } });
       if (!course || title.length < 2) return fail(req, "Select a course and enter a lesson title.");
@@ -348,14 +332,12 @@ export async function POST(req: NextRequest) {
       return json(req, { lesson }, 201);
     }
     if (path === "admin/notifications") {
-      if (!await adminUser(req)) return fail(req, "Admin sign-in required", 401);
       const body = await req.json(), title = String(body.title || "").trim(), message = String(body.message || "").trim();
       if (!title || !message) return fail(req, "Enter a notification title and message.");
       const notification = await prisma.notification.create({ data: { title, message } });
       return json(req, { notification }, 201);
     }
     if (path === "admin/settings") {
-      if (!await adminUser(req)) return fail(req, "Admin sign-in required", 401);
       const body = await req.json();
       const allowed = ["registrationFee", "siteTitle", "siteDescription", "supportEmail", "supportWhatsApp", "ecocashNumber"];
       const entries = Object.entries(body).filter(([key, value]) => allowed.includes(key) && typeof value === "string");
@@ -375,7 +357,6 @@ export async function PATCH(req: NextRequest) {
   const parts = new URL(req.url).pathname.split("/").filter(Boolean).slice(1);
   const path = parts.join("/");
   try {
-    if (!await adminUser(req)) return fail(req, "Admin sign-in required", 401);
     const body = await req.json();
     if (path === "admin/courses") {
       const id = String(body.id || ""), data: any = {};
