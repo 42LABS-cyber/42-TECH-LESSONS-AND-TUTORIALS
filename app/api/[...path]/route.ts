@@ -81,6 +81,24 @@ export async function GET(req: NextRequest) {
       const courses = await prisma.course.findMany({ where: { published: true }, orderBy: { createdAt: "desc" }, include: { _count: { select: { lessons: true } } } });
       return json(req, { courses });
     }
+    if (path === "community/groups") {
+      const claims=requireClaims(req);if(!claims)return fail(req,"Sign in to join the student community.",401);
+      const userId=String(claims.sub);
+      const [groups,memberships]=await Promise.all([
+        prisma.studyGroup.findMany({where:{OR:[{isPrivate:false},{members:{some:{userId}}}]},orderBy:{createdAt:"desc"},include:{_count:{select:{members:true,messages:true}},members:{where:{userId},select:{role:true}}}}),
+        prisma.groupMember.findMany({where:{userId},select:{groupId:true}})
+      ]);
+      const joined=new Set(memberships.map(x=>x.groupId));
+      return json(req,{groups:groups.map(g=>({...g,memberCount:g._count.members,messageCount:g._count.messages,joined:joined.has(g.id),myRole:g.members[0]?.role||null,inviteCode:g.createdById===userId?g.inviteCode:undefined}))});
+    }
+    if (path.startsWith("community/groups/") && path.endsWith("/messages")) {
+      const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
+      const groupId=parts[2],userId=String(claims.sub);
+      const member=await prisma.groupMember.findUnique({where:{groupId_userId:{groupId,userId}}});
+      if(!member&&claims.role!=="ADMIN")return fail(req,"Join this group to view its messages.",403);
+      const messages=await prisma.groupMessage.findMany({where:{groupId},orderBy:{createdAt:"desc"},take:100,include:{user:{select:{id:true,name:true,studentNo:true}}}});
+      return json(req,{messages:messages.reverse()});
+    }
     if (path === "settings/public") {
       const rows = await prisma.siteSetting.findMany({ where: { key: { in: ["siteTitle", "siteDescription", "supportEmail", "supportWhatsApp", "ecocashNumber"] } } });
       return json(req, { settings: Object.fromEntries(rows.map(row => [row.key, row.value])) });
@@ -145,6 +163,12 @@ export async function GET(req: NextRequest) {
     if (path === "admin/students") {
       const students = await prisma.user.findMany({ where: { role: "STUDENT" }, orderBy: { createdAt: "desc" }, select: { id: true, studentNo: true, name: true, email: true, phone: true, registrationPaid: true, trialEndsAt: true, createdAt: true, enrollments: { include: { course: { select: { title: true } } } }, payments: { select: { amount: true, purpose: true, status: true } } }, take: 500 });
       return json(req, { students });
+    }
+    if (path === "admin/modules") {
+      const body=await req.json(),id=String(body.id||""),data:any={};
+      if(body.title!==undefined)data.title=String(body.title).trim();
+      if(body.position!==undefined)data.position=Math.max(0,Number(body.position)||0);
+      return json(req,{module:await prisma.module.update({where:{id},data})});
     }
     if (path === "admin/feedback") {
       const [suggestions, comments] = await Promise.all([
@@ -226,6 +250,46 @@ export async function POST(req: NextRequest) {
       }
       const token = signToken({ sub: user.id, role: user.role, email: user.email }, process.env.AUTH_SECRET || "");
       return json(req, { message: "Your seven-day all-course free trial has started.", token, user: { id: user.id, studentNo: user.studentNo, name: user.name, email: user.email, role: user.role, registrationPaid: true, trialEndsAt, trialActive: true }, studentNo: user.studentNo, trialEndsAt, trialDays: 7, currency: "USD" }, 201);
+    }
+    if (path === "community/groups") {
+      const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
+      const body=await req.json(),name=String(body.name||"").trim(),description=String(body.description||"").trim().slice(0,200),isPrivate=Boolean(body.isPrivate),userId=String(claims.sub);
+      if(name.length<3||name.length>40)return fail(req,"Group name must be 3–40 characters.");
+      const count=await prisma.groupMember.count({where:{userId,role:"OWNER"}});
+      if(count>=3&&claims.role!=="ADMIN")return fail(req,"You can create up to 3 groups.");
+      const inviteCode=crypto.randomBytes(4).toString("hex").toUpperCase();
+      const group=await prisma.$transaction(async tx=>{
+        const g=await tx.studyGroup.create({data:{name,description,isPrivate,inviteCode,createdById:userId}});
+        await tx.groupMember.create({data:{groupId:g.id,userId,role:"OWNER"}});
+        return g;
+      });
+      return json(req,{group},201);
+    }
+    if (path === "community/groups/join") {
+      const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
+      const body=await req.json(),userId=String(claims.sub),groupId=String(body.groupId||""),code=String(body.inviteCode||"").trim().toUpperCase();
+      const group=groupId?await prisma.studyGroup.findUnique({where:{id:groupId}}):await prisma.studyGroup.findUnique({where:{inviteCode:code}});
+      if(!group|| (group.isPrivate&&group.inviteCode!==code))return fail(req,"No group found with that invite code.",404);
+      await prisma.groupMember.upsert({where:{groupId_userId:{groupId:group.id,userId}},create:{groupId:group.id,userId},update:{}});
+      return json(req,{joined:true,groupId:group.id});
+    }
+    if (path === "community/groups/leave") {
+      const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
+      const body=await req.json(),groupId=String(body.groupId||""),userId=String(claims.sub);
+      const member=await prisma.groupMember.findUnique({where:{groupId_userId:{groupId,userId}}});
+      if(!member)return fail(req,"You are not a member of this group.",404);
+      if(member.role==="OWNER")return fail(req,"The group owner cannot leave. Delete the group or transfer ownership first.",409);
+      await prisma.groupMember.delete({where:{id:member.id}});
+      return json(req,{left:true});
+    }
+    if (path === "community/messages") {
+      const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
+      const body=await req.json(),groupId=String(body.groupId||""),message=String(body.message||"").trim(),userId=String(claims.sub);
+      if(message.length<1||message.length>1000)return fail(req,"Message must be 1–1000 characters.");
+      const member=await prisma.groupMember.findUnique({where:{groupId_userId:{groupId,userId}}});
+      if(!member&&claims.role!=="ADMIN")return fail(req,"Join this group before sending messages.",403);
+      const saved=await prisma.groupMessage.create({data:{groupId,userId,body:message},include:{user:{select:{id:true,name:true,studentNo:true}}}});
+      return json(req,{message:saved},201);
     }
     if (path === "student/credits/share") {
       const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);const userId=String(claims.sub);
@@ -436,8 +500,15 @@ export async function POST(req: NextRequest) {
       const body = await req.json(), courseId = String(body.courseId || ""), title = String(body.title || "").trim();
       const course = await prisma.course.findUnique({ where: { id: courseId } });
       if (!course || title.length < 2) return fail(req, "Select a course and enter a lesson title.");
-      const lesson = await prisma.lesson.create({ data: { courseId, title, description: String(body.description || ""), videoUrl: String(body.videoPath || "") || null, documentUrl: String(body.documentPath || "") || null, position: Number(body.position || 0) } });
+      const lesson = await prisma.lesson.create({ data: { courseId, moduleId:String(body.moduleId||"")||null, title, description: String(body.description || ""), contentBody:String(body.contentBody||"")||null, kind:["text","youtube","link","file"].includes(String(body.kind))?String(body.kind):"text", sourceName:String(body.sourceName||"")||null, sourceUrl:String(body.sourceUrl||"")||null, filePath:String(body.filePath||body.documentPath||"")||null, videoUrl: String(body.videoPath || body.videoUrl || "") || null, documentUrl: String(body.documentPath || "") || null, position: Number(body.position || 0), status:String(body.status||"PUBLISHED").toUpperCase()==="DRAFT"?"DRAFT":"PUBLISHED" } });
       return json(req, { lesson }, 201);
+    }
+    if (path === "admin/modules") {
+      const body=await req.json(),courseId=String(body.courseId||""),title=String(body.title||"").trim();
+      if(!courseId||title.length<2)return fail(req,"Choose a course and enter a module title.");
+      const position=Number(body.position||0);
+      const module=await prisma.module.create({data:{courseId,title,position:Number.isInteger(position)?position:0}});
+      return json(req,{module},201);
     }
     if (path === "admin/notifications") {
       const body = await req.json(), title = String(body.title || "").trim(), message = String(body.message || "").trim();
@@ -487,6 +558,22 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const parts = new URL(req.url).pathname.split("/").filter(Boolean).slice(1);
   try {
+    if (parts.join("/") === "community/messages") {
+      const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
+      const id=new URL(req.url).searchParams.get("id")||"",userId=String(claims.sub);
+      const msg=await prisma.groupMessage.findUnique({where:{id}});
+      if(!msg)return fail(req,"Message not found",404);
+      if(msg.userId!==userId&&claims.role!=="ADMIN")return fail(req,"You can only delete your own messages.",403);
+      await prisma.groupMessage.delete({where:{id}});return json(req,{deleted:true});
+    }
+    if (parts.join("/") === "community/groups") {
+      const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
+      const id=new URL(req.url).searchParams.get("id")||"",userId=String(claims.sub);
+      const group=await prisma.studyGroup.findUnique({where:{id}});
+      if(!group)return fail(req,"Group not found",404);
+      if(group.createdById!==userId&&claims.role!=="ADMIN")return fail(req,"Only the group owner can delete it.",403);
+      await prisma.studyGroup.delete({where:{id}});return json(req,{deleted:true});
+    }
     if (parts.join("/") === "admin/courses") {
       const id = new URL(req.url).searchParams.get("id") || "";
       await prisma.course.delete({ where: { id } });
