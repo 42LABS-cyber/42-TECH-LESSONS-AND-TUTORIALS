@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/db";
-import { signToken, verifyToken, hashCode, makeCode } from "@/lib/security.cjs";\nimport { lessonAccess, validCreditAdjustment } from "@/lib/credits-rules.cjs";
+import { signToken, verifyToken, hashCode, makeCode } from "@/lib/security.cjs";
+import { lessonAccess, validCreditAdjustment } from "@/lib/credits-rules.cjs";
 
 const allowedOrigins = new Set([
   "https://42-tech-lessons-and-tutorials.vercel.app",
