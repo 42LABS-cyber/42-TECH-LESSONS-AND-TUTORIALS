@@ -25,7 +25,7 @@ export default function CommunityPage(){
   }catch(e:any){setNotice(e.message)}finally{setBusy(false)}
  }
  useEffect(()=>{
-  const t=localStorage.getItem("42tech-token")||"";setToken(t);
+  const t=localStorage.getItem("42tech-token")||sessionStorage.getItem("42tech-token")||"";if(t){localStorage.setItem("42tech-token",t);sessionStorage.removeItem("42tech-token")}setToken(t);
   if(!t){setNotice("Please sign in on the student website first, then return here.");return}
   loadGroups(t).then(async all=>{
    const params=new URLSearchParams(window.location.search),inviteCode=params.get("invite"),groupId=params.get("group");
