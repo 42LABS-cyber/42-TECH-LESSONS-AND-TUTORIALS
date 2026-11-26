@@ -47,6 +47,10 @@ model Course {
   slug        String       @unique
   description String       @db.Text
   category    String       @default("Technology")
+  level       String?
+  coverUrl    String?
+  sourceName  String?
+  sourceUrl   String?
   price       Decimal      @default(1) @db.Decimal(5, 2)
   published   Boolean      @default(false)
   createdAt   DateTime     @default(now())
