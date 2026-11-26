@@ -24,6 +24,17 @@ model User {
   comments         Comment[]
   codeEntries      AccessCode[]
   reads            NotificationRead[]
+  referralCode     String?            @unique
+  referredById     String?
+  referredBy       User?              @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referredUsers    User[]             @relation("UserReferrals")
+  credits          Int                @default(0)
+  shareRewarded    Boolean            @default(false)
+  subscriptionUntil DateTime?
+  creditLedger     CreditLedger[]
+  referralsMade    Referral[]         @relation("ReferralReferrer")
+  referralReceived Referral?           @relation("ReferralReferee")
+  lessonUnlocks    LessonUnlock[]
 }
 
 model Course {
@@ -49,7 +60,10 @@ model Lesson {
   videoUrl    String?
   documentUrl String?
   position    Int     @default(0)
+  creditCost  Int     @default(0)
+  contentBody String? @db.Text
   course      Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  unlocks     LessonUnlock[]
 }
 
 model Payment {
@@ -140,4 +154,40 @@ model VisitEvent {
   path      String
   sessionId String?
   createdAt DateTime @default(now())
+}
+
+model CreditLedger {
+  id        String   @id @default(cuid())
+  userId    String
+  delta     Int
+  reason    String
+  note      String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model Referral {
+  id          String   @id @default(cuid())
+  referrerId  String
+  refereeId   String   @unique
+  status      String   @default("confirmed")
+  createdAt   DateTime @default(now())
+  confirmedAt DateTime?
+  referrer    User     @relation("ReferralReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referee     User     @relation("ReferralReferee", fields: [refereeId], references: [id], onDelete: Cascade)
+
+  @@index([referrerId, createdAt])
+}
+
+model LessonUnlock {
+  id        String   @id @default(cuid())
+  userId    String
+  lessonId  String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
 }
