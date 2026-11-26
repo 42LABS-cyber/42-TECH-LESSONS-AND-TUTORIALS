@@ -34,7 +34,8 @@ model User {
   creditLedger     CreditLedger[]
   referralsMade    Referral[]         @relation("ReferralReferrer")
   referralReceived Referral?           @relation("ReferralReferee")
-  lessonUnlocks    LessonUnlock[]\n  redemptionCodes  RedemptionCode[]
+  lessonUnlocks    LessonUnlock[]
+  redemptionCodes  RedemptionCode[]
 }
 
 model Course {
