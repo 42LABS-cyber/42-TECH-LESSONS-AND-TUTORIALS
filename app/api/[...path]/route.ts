@@ -59,6 +59,7 @@ async function storageGetUrl(path: string) {
 }
 function slugify(s: string) { return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 70) || crypto.randomUUID(); }
 function studentNumber() { return "42T-" + crypto.randomBytes(4).toString("hex").toUpperCase(); }
+async function newReferralCode() { for(let i=0;i<10;i++){const code=crypto.randomBytes(4).toString("hex").slice(0,7).toUpperCase();if(!(await prisma.user.findUnique({where:{referralCode:code}})))return code;}throw new Error("Could not create a referral code"); }
 function trialIsActive(trialEndsAt: Date | null | undefined) { return Boolean(trialEndsAt && new Date(trialEndsAt).getTime() > Date.now()); }
 function randomPath(prefix: string, filename: string) {
   const ext = filename.includes(".") ? filename.split(".").pop()!.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8) : "bin";
@@ -71,7 +72,6 @@ export async function GET(req: NextRequest) {
   const path = parts.join("/");
   try {
     if (path === "health") {
-    if (path.startsWith("admin/") && !requireClaims(req, true)) return fail(req, "Administrator sign-in required.", 401);
       await prisma.$queryRaw`SELECT 1`;
       return json(req, { ok: true, service: "42 TECH API", database: "connected" });
     }
@@ -82,6 +82,35 @@ export async function GET(req: NextRequest) {
     if (path === "settings/public") {
       const rows = await prisma.siteSetting.findMany({ where: { key: { in: ["siteTitle", "siteDescription", "supportEmail", "supportWhatsApp", "ecocashNumber"] } } });
       return json(req, { settings: Object.fromEntries(rows.map(row => [row.key, row.value])) });
+    }
+    if (path === "student/credits") {
+      const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
+      const user=await prisma.user.findUnique({where:{id:String(claims.sub)},select:{id:true,credits:true,referralCode:true,shareRewarded:true,trialEndsAt:true,subscriptionUntil:true,creditLedger:{orderBy:{createdAt:"desc"},take:100},referralsMade:{select:{status:true}}}});
+      if(!user)return fail(req,"Student not found",404);
+      return json(req,{id:user.id,credits:user.credits,referralCode:user.referralCode,shareRewarded:user.shareRewarded,trialEndsAt:user.trialEndsAt,subscriptionUntil:user.subscriptionUntil,creditLedger:user.creditLedger,referralsConfirmed:user.referralsMade.filter(x=>x.status==="confirmed").length,referralsPending:user.referralsMade.filter(x=>x.status==="pending").length});
+    }
+    if (path.startsWith("lessons/access/")) {
+      const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
+      const lessonId=parts[2],user=await prisma.user.findUnique({where:{id:String(claims.sub)}}),lesson=await prisma.lesson.findUnique({where:{id:lessonId}});
+      if(!user||!lesson)return fail(req,"Lesson not found",404);
+      const unlocked=await prisma.lessonUnlock.findUnique({where:{userId_lessonId:{userId:user.id,lessonId}}});
+      const trial=trialIsActive(user.trialEndsAt),subscribed=Boolean(user.subscriptionUntil&&user.subscriptionUntil>new Date());
+      const status=trial?"trial":lesson.creditCost===0&&subscribed?"included":unlocked?"unlocked":"locked";
+      if(status==="locked")return json(req,{status,cost:lesson.creditCost,balance:user.credits,needed:Math.max(0,lesson.creditCost-user.credits)});
+      return json(req,{status,cost:lesson.creditCost,balance:user.credits,needed:0,content:{body:lesson.contentBody||lesson.description||"",videoUrl:lesson.videoUrl,documentUrl:lesson.documentUrl}});
+    }
+    if (path === "admin/credits/users") {
+      const q=(new URL(req.url).searchParams.get("q")||"").trim().slice(0,100);
+      const users=await prisma.user.findMany({where:{role:"STUDENT",...(q?{OR:[{name:{contains:q,mode:"insensitive"}},{email:{contains:q,mode:"insensitive"}},{phone:{contains:q,mode:"insensitive"}},{studentNo:{contains:q,mode:"insensitive"}},{referralCode:{contains:q,mode:"insensitive"}}]}:{})},orderBy:{createdAt:"desc"},take:100,select:{id:true,studentNo:true,name:true,email:true,phone:true,credits:true,referralCode:true,trialEndsAt:true,subscriptionUntil:true,createdAt:true}});
+      return json(req,{users});
+    }
+    if (path === "admin/credits/lessons") {
+      const lessons=await prisma.lesson.findMany({orderBy:{position:"asc"},include:{course:{select:{title:true}}}});
+      return json(req,{lessons});
+    }
+    if (path === "admin/credits/referrals") {
+      const referrals=await prisma.referral.findMany({orderBy:{createdAt:"desc"},take:200,include:{referrer:{select:{name:true,email:true,referralCode:true}},referee:{select:{name:true,email:true,studentNo:true}}}});
+      return json(req,{referrals});
     }
     if (path === "admin/overview") {
       const [students, pendingPayments, courses, visits, suggestions, comments] = await Promise.all([
@@ -161,7 +190,6 @@ export async function POST(req: NextRequest) {
   const parts = new URL(req.url).pathname.split("/").filter(Boolean).slice(1);
   const path = parts.join("/");
   try {
-    if (path.startsWith("admin/") && path !== "admin/login" && !requireClaims(req, true)) return fail(req, "Administrator sign-in required.", 401);
     if (path === "auth/register") {
       const body = await req.json();
       const name = String(body.name || "").trim(), email = String(body.email || "").trim().toLowerCase();
@@ -170,9 +198,57 @@ export async function POST(req: NextRequest) {
       const existing = await prisma.user.findFirst({ where: { OR: [{ email }] } });
       if (existing) return fail(req, "An account with this email already exists.", 409);
       const trialEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      const user = await prisma.user.create({ data: { studentNo: studentNumber(), name, email, phone: phone || null, passwordHash: await bcrypt.hash(password, 12), role: "STUDENT", registrationPaid: true, trialEndsAt } });
+      const referralCode=String(body.referralCode||"").trim().toUpperCase();
+      const referrer=referralCode?await prisma.user.findUnique({where:{referralCode}}):null;
+      const user=await prisma.user.create({data:{studentNo:studentNumber(),name,email,phone:phone||null,passwordHash:await bcrypt.hash(password,12),role:"STUDENT",registrationPaid:true,trialEndsAt,referralCode:await newReferralCode(),referredById:referrer?.id||null}});
+      if(referrer){
+        const since=new Date(Date.now()-86400000),count=await prisma.referral.count({where:{referrerId:referrer.id,status:"confirmed",confirmedAt:{gt:since}}});
+        const status=count>=10?"capped":"confirmed";
+        await prisma.$transaction(async tx=>{
+          await tx.referral.create({data:{referrerId:referrer.id,refereeId:user.id,status,confirmedAt:status==="confirmed"?new Date():null}});
+          await tx.user.update({where:{id:user.id},data:{credits:{increment:10}}});
+          await tx.creditLedger.create({data:{userId:user.id,delta:10,reason:"signup_bonus",note:referrer.id}});
+          if(status==="confirmed"){await tx.user.update({where:{id:referrer.id},data:{credits:{increment:15}}});await tx.creditLedger.create({data:{userId:referrer.id,delta:15,reason:"referral_bonus",note:user.id}});}
+        });
+      }
       const token = signToken({ sub: user.id, role: user.role, email: user.email }, process.env.AUTH_SECRET || "");
       return json(req, { message: "Your seven-day all-course free trial has started.", token, user: { id: user.id, studentNo: user.studentNo, name: user.name, email: user.email, role: user.role, registrationPaid: true, trialEndsAt, trialActive: true }, studentNo: user.studentNo, trialEndsAt, trialDays: 7, currency: "USD" }, 201);
+    }
+    if (path === "student/credits/share") {
+      const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);const userId=String(claims.sub);
+      const result=await prisma.$transaction(async tx=>{const user=await tx.user.findUnique({where:{id:userId}});if(!user)throw new Error("Student not found");if(!user.shareRewarded){await tx.user.update({where:{id:userId},data:{shareRewarded:true,credits:{increment:5}}});await tx.creditLedger.create({data:{userId,delta:5,reason:"share_bonus",note:"Shared referral code"}});}return tx.user.findUnique({where:{id:userId},select:{credits:true,shareRewarded:true}});});
+      return json(req,result);
+    }
+    if (path === "student/credits/unlock") {
+      const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);const body=await req.json(),lessonId=String(body.lessonId||""),userId=String(claims.sub);
+      const result=await prisma.$transaction(async tx=>{
+        const [user,lesson,already]=await Promise.all([tx.user.findUnique({where:{id:userId}}),tx.lesson.findUnique({where:{id:lessonId}}),tx.lessonUnlock.findUnique({where:{userId_lessonId:{userId,lessonId}}})]);
+        if(!user||!lesson||lesson.creditCost<=0)return {ok:false,error:"not_unlockable"};
+        if(trialIsActive(user.trialEndsAt)||(user.subscriptionUntil&&user.subscriptionUntil>new Date())||already)return {ok:true,balance:user.credits};
+        const changed=await tx.user.updateMany({where:{id:userId,credits:{gte:lesson.creditCost}},data:{credits:{decrement:lesson.creditCost}}});
+        if(!changed.count)return {ok:false,error:"not_enough",needed:lesson.creditCost-user.credits,balance:user.credits};
+        await tx.lessonUnlock.create({data:{userId,lessonId}});await tx.creditLedger.create({data:{userId,delta:-lesson.creditCost,reason:"unlock",note:lessonId}});
+        return {ok:true,balance:user.credits-lesson.creditCost};
+      });return json(req,result);
+    }
+    if (path === "admin/credits/adjust") {
+      const body=await req.json(),userId=String(body.userId||""),delta=Number(body.delta),note=String(body.note||"Manual adjustment").slice(0,200);
+      if(!Number.isInteger(delta)||delta===0||Math.abs(delta)>1000000)return fail(req,"Enter a non-zero whole-number adjustment.");
+      const user=await prisma.user.findUnique({where:{id:userId}});if(!user)return fail(req,"Student not found",404);if(user.credits+delta<0)return fail(req,"Balance cannot be negative.");
+      await prisma.$transaction([prisma.user.update({where:{id:userId},data:{credits:{increment:delta}}}),prisma.creditLedger.create({data:{userId,delta,reason:"admin",note}})]);
+      return json(req,{updated:true,credits:user.credits+delta});
+    }
+    if (path === "admin/credits/subscription") {
+      const body=await req.json(),userId=String(body.userId||""),days=Number(body.days||30);
+      if(!Number.isInteger(days)||days<1||days>3650)return fail(req,"Days must be between 1 and 3650.");
+      const user=await prisma.user.findUnique({where:{id:userId}});if(!user)return fail(req,"Student not found",404);
+      const base=user.subscriptionUntil&&user.subscriptionUntil>new Date()?user.subscriptionUntil:new Date(),until=new Date(base.getTime()+days*86400000);
+      await prisma.user.update({where:{id:userId},data:{subscriptionUntil:until}});return json(req,{updated:true,subscriptionUntil:until});
+    }
+    if (path === "admin/credits/lesson") {
+      const body=await req.json(),lessonId=String(body.lessonId||""),cost=Number(body.cost);
+      if(!Number.isInteger(cost)||cost<0||cost>100000)return fail(req,"Lesson cost must be 0–100000 credits.");
+      return json(req,{lesson:await prisma.lesson.update({where:{id:lessonId},data:{creditCost:cost}})});
     }
     if (path === "admin/passcode-login") return fail(req, "Passcode login has been removed.", 410);
     if (path === "auth/login" || path === "admin/login") {
@@ -188,7 +264,7 @@ export async function POST(req: NextRequest) {
       return fail(req, "Administrator account creation is disabled.", 410);
     }
     if (path === "payments/upload-url" || path === "admin/uploads/url") {
-      const claims = path.startsWith("admin/") ? requireClaims(req, true) : requireClaims(req);
+      const claims = path.startsWith("admin/") ? {sub:"public-admin"} : requireClaims(req);
       if (!claims) return fail(req, "Sign in required", 401);
       const body = await req.json();
       const filename = String(body.filename || "upload.bin"), contentType = String(body.contentType || "application/octet-stream");
@@ -335,7 +411,6 @@ export async function PATCH(req: NextRequest) {
   const path = parts.join("/");
   try {
     const body = await req.json();
-    if (path.startsWith("admin/") && !requireClaims(req, true)) return fail(req, "Administrator sign-in required.", 401);
     if (path === "admin/courses") {
       const id = String(body.id || ""), data: any = {};
       if (body.title !== undefined) { data.title = String(body.title); data.slug = slugify(data.title) + "-" + crypto.randomBytes(3).toString("hex"); }
@@ -358,7 +433,6 @@ export async function DELETE(req: NextRequest) {
   const parts = new URL(req.url).pathname.split("/").filter(Boolean).slice(1);
   try {
     if (parts.join("/") === "admin/courses") {
-    if (parts.join("/").startsWith("admin/") && !requireClaims(req, true)) return fail(req, "Administrator sign-in required.", 401);
       const id = new URL(req.url).searchParams.get("id") || "";
       await prisma.course.delete({ where: { id } });
       return json(req, { deleted: true });
