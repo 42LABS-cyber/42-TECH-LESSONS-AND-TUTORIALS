@@ -60,7 +60,7 @@ async function storageGetUrl(path: string) {
 }
 function slugify(s: string) { return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 70) || crypto.randomUUID(); }
 function studentNumber() { return "42T-" + crypto.randomBytes(4).toString("hex").toUpperCase(); }
-async function newReferralCode() { for(let i=0;i<10;i++){const code=crypto.randomBytes(4).toString("hex").slice(0,7).toUpperCase();if(!(await prisma.user.findUnique({where:{referralCode:code}})))return code;}throw new Error("Could not create a referral code"); }
+async function newReferralCode() { for(let i=0;i<10;i++){const code=crypto.randomBytes(4).toString("hex").slice(0,7).toUpperCase();if(!(await prisma.user.findFirst({where:{referralCode:code}})))return code;}throw new Error("Could not create a referral code"); }
 function trialIsActive(trialEndsAt: Date | null | undefined) { return Boolean(trialEndsAt && new Date(trialEndsAt).getTime() > Date.now()); }
 function randomPath(prefix: string, filename: string) {
   const ext = filename.includes(".") ? filename.split(".").pop()!.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8) : "bin";
@@ -206,7 +206,7 @@ export async function POST(req: NextRequest) {
       if (existing) return fail(req, "An account with this email already exists.", 409);
       const trialEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       const referralCode=String(body.referralCode||"").trim().toUpperCase();
-      const referrer=referralCode?await prisma.user.findUnique({where:{referralCode}}):null;
+      const referrer=referralCode?await prisma.user.findFirst({where:{referralCode}}):null;
       const user=await prisma.user.create({data:{studentNo:studentNumber(),name,email,phone:phone||null,passwordHash:await bcrypt.hash(password,12),role:"STUDENT",registrationPaid:true,trialEndsAt,referralCode:await newReferralCode(),referredById:referrer?.id||null}});
       if(referrer){
         const since=new Date(Date.now()-86400000),count=await prisma.referral.count({where:{referrerId:referrer.id,status:"confirmed",confirmedAt:{gt:since}}});
