@@ -5,6 +5,7 @@ import prisma from "@/lib/db";
 import { signToken, verifyToken, hashCode, makeCode } from "@/lib/security.cjs";
 import { lessonAccess, validCreditAdjustment } from "@/lib/credits-rules.cjs";
 import { creditsForPayment, normaliseStudentNo, canRedeem } from "@/lib/redemption-rules.cjs";
+import { validateGroupName, validateGroupMessage } from "@/lib/community-rules.cjs";
 
 const allowedOrigins = new Set([
   "https://42-tech-lessons-and-tutorials.vercel.app",
@@ -78,7 +79,7 @@ export async function GET(req: NextRequest) {
       return json(req, { ok: true, service: "42 TECH API", database: "connected" });
     }
     if (path === "courses") {
-      const courses = await prisma.course.findMany({ where: { published: true }, orderBy: { createdAt: "desc" }, include: { _count: { select: { lessons: true } } } });
+      const courses = await prisma.course.findMany({ where: { published: true }, orderBy: { createdAt: "desc" }, include: { modules: { orderBy: { position: "asc" }, include: { lessons: { where: { status: "PUBLISHED" }, orderBy: { position: "asc" }, select: { id: true, title: true, description: true, position: true, kind: true, sourceName: true, sourceUrl: true } } } }, _count: { select: { lessons: true } } } });
       return json(req, { courses });
     }
     if (path === "community/groups") {
@@ -157,7 +158,7 @@ export async function GET(req: NextRequest) {
       return json(req, { url: link.url });
     }
     if (path === "admin/courses") {
-      const courses = await prisma.course.findMany({ orderBy: { createdAt: "desc" }, include: { lessons: { orderBy: { position: "asc" } }, _count: { select: { enrollments: true, payments: true } } } });
+      const courses = await prisma.course.findMany({ orderBy: { createdAt: "desc" }, include: { modules: { orderBy: { position: "asc" }, include: { lessons: { orderBy: { position: "asc" } } } }, lessons: { orderBy: { position: "asc" } }, _count: { select: { enrollments: true, payments: true } } } });
       return json(req, { courses });
     }
     if (path === "admin/students") {
@@ -201,7 +202,7 @@ export async function GET(req: NextRequest) {
         prisma.enrollment.findUnique({ where: { userId_courseId: { userId: String(claims.sub), courseId } } }),
         prisma.user.findUnique({ where: { id: String(claims.sub) }, select: { trialEndsAt: true, subscriptionUntil: true } }),
       ]);
-      const lessons = await prisma.lesson.findMany({ where: { courseId }, orderBy: { position: "asc" } });
+      const lessons = await prisma.lesson.findMany({ where: { courseId, status: "PUBLISHED" }, orderBy: { position: "asc" } });
       const secure = await Promise.all(lessons.map(async l => {
         const unlocked=await prisma.lessonUnlock.findUnique({where:{userId_lessonId:{userId:String(claims.sub),lessonId:l.id}}});
         const trial=trialIsActive(student?.trialEndsAt),subscribed=Boolean(student?.subscriptionUntil&&student.subscriptionUntil>new Date());
@@ -254,7 +255,7 @@ export async function POST(req: NextRequest) {
     if (path === "community/groups") {
       const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
       const body=await req.json(),name=String(body.name||"").trim(),description=String(body.description||"").trim().slice(0,200),isPrivate=Boolean(body.isPrivate),userId=String(claims.sub);
-      if(name.length<3||name.length>40)return fail(req,"Group name must be 3–40 characters.");
+      if(!validateGroupName(name))return fail(req,"Group name must be 3–40 characters.");
       const count=await prisma.groupMember.count({where:{userId,role:"OWNER"}});
       if(count>=3&&claims.role!=="ADMIN")return fail(req,"You can create up to 3 groups.");
       const inviteCode=crypto.randomBytes(4).toString("hex").toUpperCase();
@@ -285,7 +286,7 @@ export async function POST(req: NextRequest) {
     if (path === "community/messages") {
       const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
       const body=await req.json(),groupId=String(body.groupId||""),message=String(body.message||"").trim(),userId=String(claims.sub);
-      if(message.length<1||message.length>1000)return fail(req,"Message must be 1–1000 characters.");
+      if(!validateGroupMessage(message))return fail(req,"Message must be 1–1000 characters.");
       const member=await prisma.groupMember.findUnique({where:{groupId_userId:{groupId,userId}}});
       if(!member&&claims.role!=="ADMIN")return fail(req,"Join this group before sending messages.",403);
       const saved=await prisma.groupMessage.create({data:{groupId,userId,body:message},include:{user:{select:{id:true,name:true,studentNo:true}}}});
