@@ -186,11 +186,11 @@ export async function POST(req: NextRequest) {
       return fail(req, "Administrator account creation is disabled.", 410);
     }
     if (path === "payments/upload-url" || path === "admin/uploads/url") {
-      const claims = path.startsWith("admin/") ? { sub: "public-admin" } : requireClaims(req);
+      const claims = path.startsWith("admin/") ? requireClaims(req, true) : requireClaims(req);
       if (!claims) return fail(req, "Sign in required", 401);
       const body = await req.json();
       const filename = String(body.filename || "upload.bin"), contentType = String(body.contentType || "application/octet-stream");
-      if (!/^(image\/(png|jpeg|webp)|application\/pdf|video\/(mp4|webm)|application\/(vnd\.openxmlformats-officedocument\.[^;]+|msword|zip)|text\/plain)$/.test(contentType)) return fail(req, "This file type is not supported.");
+      if (!/^(image\/(png|jpeg|webp)|application\/pdf|video\/(mp4|webm|quicktime)|application\/(vnd\.openxmlformats-officedocument\.[^;]+|msword|vnd\.ms-powerpoint|vnd\.ms-excel|vnd\.oasis\.opendocument\.[^;]+|zip|x-zip-compressed|rtf)|text\/(plain|csv))$/.test(contentType)) return fail(req, "This file type is not supported.");
       const max = path.startsWith("admin/") ? 500 * 1024 * 1024 : 8 * 1024 * 1024;
       if (Number(body.size || 0) > max) return fail(req, "The selected file is too large.");
       const prefix = path.startsWith("admin/") ? "course-materials" : "payment-proofs";
