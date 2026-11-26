@@ -87,10 +87,10 @@ export async function GET(req: NextRequest) {
     }
     if (path === "student/credits") {
       const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
-      const user=await prisma.user.findUnique({where:{id:String(claims.sub)},select:{id:true,credits:true,referralCode:true,shareRewarded:true,trialEndsAt:true,subscriptionUntil:true,creditLedger:{orderBy:{createdAt:"desc"},take:100},referralsMade:{select:{status:true}}}});
+      const user=await prisma.user.findUnique({where:{id:String(claims.sub)},select:{id:true,studentNo:true,credits:true,referralCode:true,shareRewarded:true,trialEndsAt:true,subscriptionUntil:true,creditLedger:{orderBy:{createdAt:"desc"},take:100},referralsMade:{select:{status:true}}}});
       if(!user)return fail(req,"Student not found",404);
       const code=user.referralCode||await newReferralCode();if(!user.referralCode)await prisma.user.update({where:{id:user.id},data:{referralCode:code}});
-      return json(req,{id:user.id,credits:user.credits,referralCode:code,shareRewarded:user.shareRewarded,trialEndsAt:user.trialEndsAt,subscriptionUntil:user.subscriptionUntil,creditLedger:user.creditLedger,referralsConfirmed:user.referralsMade.filter(x=>x.status==="confirmed").length,referralsPending:user.referralsMade.filter(x=>x.status==="pending").length});
+      return json(req,{id:user.id,studentNo:user.studentNo,credits:user.credits,referralCode:code,shareRewarded:user.shareRewarded,trialEndsAt:user.trialEndsAt,subscriptionUntil:user.subscriptionUntil,creditLedger:user.creditLedger,referralsConfirmed:user.referralsMade.filter(x=>x.status==="confirmed").length,referralsPending:user.referralsMade.filter(x=>x.status==="pending").length});
     }
     if (path.startsWith("lessons/access/")) {
       const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
