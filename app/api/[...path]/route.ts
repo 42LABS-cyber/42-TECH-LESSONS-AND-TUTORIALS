@@ -119,7 +119,7 @@ export async function GET(req: NextRequest) {
       const trial=trialIsActive(user.trialEndsAt),subscribed=Boolean(user.subscriptionUntil&&user.subscriptionUntil>new Date());
       const status=trial?"trial":lesson.creditCost===0&&subscribed?"included":unlocked?"unlocked":"locked";
       if(status==="locked")return json(req,{status,cost:lesson.creditCost,balance:user.credits,needed:Math.max(0,lesson.creditCost-user.credits)});
-      return json(req,{status,cost:lesson.creditCost,balance:user.credits,needed:0,content:{body:lesson.contentBody||lesson.description||"",videoUrl:lesson.videoUrl,documentUrl:lesson.documentUrl}});
+      return json(req,{status,cost:lesson.creditCost,balance:user.credits,needed:0,content:{body:lesson.contentBody||lesson.description||"",videoUrl:lesson.videoUrl,documentUrl:lesson.documentUrl,sourceUrl:lesson.sourceUrl,kind:lesson.kind,sourceName:lesson.sourceName}});
     }
     if (path === "admin/credits/users") {
       const q=(new URL(req.url).searchParams.get("q")||"").trim().slice(0,100);
@@ -208,7 +208,7 @@ export async function GET(req: NextRequest) {
         const trial=trialIsActive(student?.trialEndsAt),subscribed=Boolean(student?.subscriptionUntil&&student.subscriptionUntil>new Date());
         const activeCourse=Boolean(enrollment?.active),allowed=trial||activeCourse||unlocked||((l.creditCost||0)===0&&subscribed);
         return {
-          id:l.id,title:l.title,description:l.description,position:l.position,creditCost:l.creditCost,
+          id:l.id,title:l.title,description:l.description,position:l.position,creditCost:l.creditCost,kind:l.kind,sourceName:l.sourceName,sourceUrl:l.sourceUrl,
           accessStatus:trial?"trial":activeCourse?"subscribed":unlocked?"unlocked":allowed?"included":"locked",
           videoUrl:allowed&&l.videoUrl?(await storageGetUrl(l.videoUrl)).url:null,
           documentUrl:allowed&&l.documentUrl?(await storageGetUrl(l.documentUrl)).url:null,
