@@ -241,7 +241,7 @@ export async function POST(req: NextRequest) {
     }
     if (path === "admin/credits/adjust") {
       const body=await req.json(),userId=String(body.userId||""),delta=Number(body.delta),note=String(body.note||"Manual adjustment").slice(0,200);
-      if(!validCreditAdjustment(0,delta))return fail(req,"Enter a non-zero whole-number adjustment.");
+      if(!Number.isInteger(delta)||delta===0||Math.abs(delta)>1000000)return fail(req,"Enter a non-zero whole-number adjustment.");
       const user=await prisma.user.findUnique({where:{id:userId}});if(!user)return fail(req,"Student not found",404);if(!validCreditAdjustment(user.credits,delta))return fail(req,"Balance cannot be negative.");
       await prisma.$transaction([prisma.user.update({where:{id:userId},data:{credits:{increment:delta}}}),prisma.creditLedger.create({data:{userId,delta,reason:"admin",note}})]);
       return json(req,{updated:true,credits:user.credits+delta});
