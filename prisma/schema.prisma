@@ -36,6 +36,9 @@ model User {
   referralReceived Referral?           @relation("ReferralReferee")
   lessonUnlocks    LessonUnlock[]
   redemptionCodes  RedemptionCode[]
+  groupMemberships GroupMember[]
+  groupMessages    GroupMessage[]
+  groupsCreated    StudyGroup[]
 }
 
 model Course {
@@ -51,6 +54,7 @@ model Course {
   enrollments Enrollment[]
   payments    Payment[]
   codes       AccessCode[]
+  modules     Module[]
 }
 
 model Lesson {
@@ -63,7 +67,15 @@ model Lesson {
   position    Int     @default(0)
   creditCost  Int     @default(0)
   contentBody String? @db.Text
+  moduleId    String?
+  position    Int     @default(0)
+  status      String  @default("PUBLISHED")
+  kind        String  @default("text")
+  sourceName  String?
+  sourceUrl   String?
+  filePath    String?
   course      Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  module      Module? @relation(fields: [moduleId], references: [id], onDelete: SetNull)
   unlocks     LessonUnlock[]
 }
 
@@ -207,4 +219,57 @@ model RedemptionCode {
 
   @@index([userId, createdAt])
   @@index([expiresAt, redeemedAt])
+}
+
+
+model Module {
+  id        String   @id @default(cuid())
+  courseId  String
+  title     String
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons   Lesson[]
+
+  @@index([courseId, position])
+}
+
+model StudyGroup {
+  id          String        @id @default(cuid())
+  name        String
+  description String        @default("") @db.VarChar(200)
+  isPrivate   Boolean       @default(false)
+  inviteCode  String        @unique
+  createdById String?
+  createdAt   DateTime      @default(now())
+  members     GroupMember[]
+  messages    GroupMessage[]
+  createdBy   User?         @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([isPrivate, createdAt])
+}
+
+model GroupMember {
+  id        String     @id @default(cuid())
+  groupId   String
+  userId    String
+  role      String     @default("MEMBER")
+  joinedAt  DateTime   @default(now())
+  group     StudyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId, joinedAt])
+}
+
+model GroupMessage {
+  id        String     @id @default(cuid())
+  groupId   String
+  userId    String
+  body      String     @db.VarChar(1000)
+  createdAt DateTime   @default(now())
+  group     StudyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
 }
