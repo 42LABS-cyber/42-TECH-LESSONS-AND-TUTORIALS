@@ -92,7 +92,8 @@ export default async function CoursePage({ params }: { params: Promise<{ slug: s
     <section className="content-panel"><h2>Access and pricing</h2><p>New students receive seven days of trial access. After the trial, this course costs ${Number(dbCourse.price).toFixed(2)} per month. Payments are reviewed manually before access is activated.</p></section>
     <footer className="content-footer"><Link href="/community">Student community</Link><Link href="/legal#terms">Terms</Link><Link href="/legal#privacy">Privacy</Link><span>© 42 TECH LESSONS & TUTORIALS</span></footer>
   </main>;
-  const courseKey=(rawSlug in courses?rawSlug as Slug:findGuideKey(rawSlug,""))||"web";\n  const course = courses[courseKey];
+  const courseKey=(rawSlug in courses?rawSlug as Slug:findGuideKey(rawSlug,""))||"web";
+  const course = courses[courseKey];
   const other = Object.entries(courses).filter(([slug]) => slug !== rawSlug);
   return <main className="content-page">
     <Link className="back-link" href="/">← All courses</Link>
