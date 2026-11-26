@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import prisma from "@/lib/db";
 import { signToken, verifyToken, hashCode, makeCode } from "@/lib/security.cjs";
 import { lessonAccess, validCreditAdjustment } from "@/lib/credits-rules.cjs";
+import { creditsForPayment, normaliseStudentNo } from "@/lib/redemption-rules.cjs";
 
 const allowedOrigins = new Set([
   "https://42-tech-lessons-and-tutorials.vercel.app",
@@ -109,6 +110,10 @@ export async function GET(req: NextRequest) {
     if (path === "admin/credits/lessons") {
       const lessons=await prisma.lesson.findMany({orderBy:{position:"asc"},include:{course:{select:{title:true}}}});
       return json(req,{lessons});
+    }
+    if (path === "admin/credits/codes") {
+      const codes=await prisma.redemptionCode.findMany({orderBy:{createdAt:"desc"},take:100,include:{user:{select:{name:true,studentNo:true,email:true}}}});
+      return json(req,{codes:codes.map(c=>({...c,amount:c.amount.toString(),status:c.redeemedAt?"USED":c.expiresAt<=new Date()?"EXPIRED":"WAITING"}))});
     }
     if (path === "admin/credits/referrals") {
       const referrals=await prisma.referral.findMany({orderBy:{createdAt:"desc"},take:200,include:{referrer:{select:{name:true,email:true,referralCode:true}},referee:{select:{name:true,email:true,studentNo:true}}}});
@@ -257,6 +262,48 @@ export async function POST(req: NextRequest) {
       const body=await req.json(),lessonId=String(body.lessonId||""),cost=Number(body.cost);
       if(!Number.isInteger(cost)||cost<0||cost>100000)return fail(req,"Lesson cost must be 0–100000 credits.");
       return json(req,{lesson:await prisma.lesson.update({where:{id:lessonId},data:{creditCost:cost}})});
+    }
+    if (path === "admin/credits/codes/generate") {
+      const body=await req.json(),studentNo=normaliseStudentNo(body.studentNo),amount=Number(body.amount),kind=String(body.kind||"credits");
+      if(!studentNo||!Number.isFinite(amount)||amount<=0||amount>1000)return fail(req,"Enter a valid student ID and payment amount up to $1,000.");
+      if(!["credits","subscription"].includes(kind))return fail(req,"Choose credits or subscription.");
+      const user=await prisma.user.findFirst({where:{studentNo,role:"STUDENT"},select:{id:true,name:true,studentNo:true}});
+      if(!user)return fail(req,"No student matches that student ID.",404);
+      const setting=await prisma.siteSetting.findFirst({where:{key:{in:["creditsPerDollar","credits_per_dollar"]}}});
+      const rate=Number(setting?.value||100),credits=kind==="credits"?creditsForPayment(amount,rate):0;
+      if(kind==="credits"&&credits<1)return fail(req,"The payment amount is too small to create credits.");
+      let code="";
+      for(let i=0;i<10;i++){const raw=crypto.randomBytes(6).toString("hex").toUpperCase();const candidate="42-"+raw.slice(0,4)+"-"+raw.slice(4,8)+"-"+raw.slice(8,12);if(!(await prisma.redemptionCode.findUnique({where:{code:candidate}}))){code=candidate;break;}}
+      if(!code)return fail(req,"Could not generate a unique code. Try again.",500);
+      const expiresAt=new Date(Date.now()+7*86400000);
+      const saved=await prisma.redemptionCode.create({data:{code,userId:user.id,kind,amount,credits,expiresAt}});
+      return json(req,{code:saved.code,student:user.name,studentNo:user.studentNo,amount:saved.amount.toString(),credits:saved.credits,kind:saved.kind,expiresAt:saved.expiresAt},201);
+    }
+    if (path === "student/credits/redeem") {
+      const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
+      const body=await req.json(),code=String(body.code||"").trim().toUpperCase(),userId=String(claims.sub);
+      if(!/^42-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}$/.test(code))return fail(req,"This code is invalid, expired, already used, or belongs to another student.");
+      const result=await prisma.$transaction(async tx=>{
+        const current=await tx.redemptionCode.findFirst({where:{code,userId}});
+        if(!current||current.redeemedAt||current.expiresAt<=new Date())return {ok:false};
+        const claimed=await tx.redemptionCode.updateMany({where:{id:current.id,userId,redeemedAt:null,expiresAt:{gt:new Date()}},data:{redeemedAt:new Date()}});
+        if(!claimed.count)return {ok:false};
+        if(current.kind==="credits"){
+          await tx.user.update({where:{id:userId},data:{credits:{increment:current.credits}}});
+          await tx.creditLedger.create({data:{userId,delta:current.credits,reason:"purchase_code",note:"$"+current.amount.toString()+" payment code redeemed"}});
+        }else{
+          const user=await tx.user.findUnique({where:{id:userId},select:{subscriptionUntil:true}});
+          const base=user?.subscriptionUntil&&user.subscriptionUntil>new Date()?user.subscriptionUntil:new Date();
+          const until=new Date(base.getTime()+30*86400000);
+          await tx.user.update({where:{id:userId},data:{subscriptionUntil:until}});
+          await tx.creditLedger.create({data:{userId,delta:0,reason:"subscription_code",note:"$"+current.amount.toString()+" payment code redeemed · 30 days"}});
+          return {ok:true,kind:current.kind,credits:0,subscriptionUntil:until};
+        }
+        const user=await tx.user.findUnique({where:{id:userId},select:{credits:true}});
+        return {ok:true,kind:current.kind,credits:current.credits,balance:user?.credits||0};
+      });
+      if(!result.ok)return fail(req,"This code is invalid, expired, already used, or belongs to another student.",400);
+      return json(req,result);
     }
     if (path === "admin/passcode-login") return fail(req, "Passcode login has been removed.", 410);
     if (path === "auth/login" || path === "admin/login") {
