@@ -494,7 +494,7 @@ export async function POST(req: NextRequest) {
       const body = await req.json(), title = String(body.title || "").trim(), description = String(body.description || "").trim();
       const price = Number(body.price);
       if (title.length < 3 || !Number.isFinite(price) || price < 1 || price > 10) return fail(req, "Course title is required and price must be between $1 and $10.");
-      const course = await prisma.course.create({ data: { title, slug: slugify(title) + "-" + crypto.randomBytes(3).toString("hex"), description, category: String(body.category || "Technology"), price, published: Boolean(body.published) } });
+      const course = await prisma.course.create({ data: { title, slug: slugify(title) + "-" + crypto.randomBytes(3).toString("hex"), description, category: String(body.category || "Technology"), level:String(body.level||"")||null, coverUrl:String(body.coverUrl||"")||null, sourceName:String(body.sourceName||"")||null, sourceUrl:String(body.sourceUrl||"")||null, price, published: Boolean(body.published) } });
       return json(req, { course }, 201);
     }
     if (path === "admin/lessons") {
@@ -543,6 +543,10 @@ export async function PATCH(req: NextRequest) {
       if (body.title !== undefined) { data.title = String(body.title); data.slug = slugify(data.title) + "-" + crypto.randomBytes(3).toString("hex"); }
       if (body.description !== undefined) data.description = String(body.description);
       if (body.category !== undefined) data.category = String(body.category);
+      if (body.level !== undefined) data.level = String(body.level)||null;
+      if (body.coverUrl !== undefined) data.coverUrl = String(body.coverUrl)||null;
+      if (body.sourceName !== undefined) data.sourceName = String(body.sourceName)||null;
+      if (body.sourceUrl !== undefined) data.sourceUrl = String(body.sourceUrl)||null;
       if (body.price !== undefined) { const n = Number(body.price); if (n < 1 || n > 10) return fail(req, "Price must be $1–$10."); data.price = n; }
       if (body.published !== undefined) data.published = Boolean(body.published);
       return json(req, { course: await prisma.course.update({ where: { id }, data }) });
