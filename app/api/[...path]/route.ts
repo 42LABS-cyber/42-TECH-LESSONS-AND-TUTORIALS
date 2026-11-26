@@ -161,8 +161,8 @@ export async function POST(req: NextRequest) {
   const parts = new URL(req.url).pathname.split("/").filter(Boolean).slice(1);
   const path = parts.join("/");
   try {
-    if (path === "auth/register") {
     if (path.startsWith("admin/") && path !== "admin/login" && !requireClaims(req, true)) return fail(req, "Administrator sign-in required.", 401);
+    if (path === "auth/register") {
       const body = await req.json();
       const name = String(body.name || "").trim(), email = String(body.email || "").trim().toLowerCase();
       const password = String(body.password || ""), phone = String(body.phone || "").trim();
