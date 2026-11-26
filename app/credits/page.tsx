@@ -1,7 +1,7 @@
 "use client";
 import {useEffect,useState} from "react";
 type Credits={studentNo:string;credits:number;referralCode:string;shareRewarded:boolean;trialEndsAt?:string|null;subscriptionUntil?:string|null;creditLedger:any[];referralsConfirmed:number;referralsPending:number};
-const reasons:Record<string,string>={signup_bonus:"Welcome credit bonus",referral_bonus:"Friend joined using your code",share_bonus:"Shared your referral code",unlock:"Lesson unlocked",admin:"42 TECH credit adjustment"};
+const reasons:Record<string,string>={signup_bonus:"Welcome credit bonus",referral_bonus:"Friend joined using your code",share_bonus:"Shared your referral code",unlock:"Lesson unlocked",admin:"42 TECH credit adjustment",purchase_code:"Credits added from a redeemed payment code",subscription_code:"30-day subscription added from a payment code"};
 export default function CreditsPage(){
  const [data,setData]=useState<Credits|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState(false),[copied,setCopied]=useState(false),[redeemCode,setRedeemCode]=useState(""),[redeemMessage,setRedeemMessage]=useState("");
  async function load(){const token=sessionStorage.getItem("42tech-token");if(!token){setError("Please sign in to view your credits.");return}const r=await fetch("/api/student/credits",{headers:{Authorization:"Bearer "+token}}),d=await r.json();if(!r.ok){setError(d.error||"Could not load credits");return}setData(d);setError("")}
