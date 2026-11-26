@@ -168,12 +168,12 @@ export async function GET(req: NextRequest) {
       const courseId = parts[1];
       const [enrollment, student] = await Promise.all([
         prisma.enrollment.findUnique({ where: { userId_courseId: { userId: String(claims.sub), courseId } } }),
-        prisma.user.findUnique({ where: { id: String(claims.sub) }, select: { trialEndsAt: true } }),
+        prisma.user.findUnique({ where: { id: String(claims.sub) }, select: { trialEndsAt: true, subscriptionUntil: true } }),
       ]);
       const lessons = await prisma.lesson.findMany({ where: { courseId }, orderBy: { position: "asc" } });
       const secure = await Promise.all(lessons.map(async l => {
         const unlocked=await prisma.lessonUnlock.findUnique({where:{userId_lessonId:{userId:String(claims.sub),lessonId:l.id}}});
-        const trial=trialIsActive(student?.trialEndsAt),subscribed=Boolean((await prisma.user.findUnique({where:{id:String(claims.sub)},select:{subscriptionUntil:true}}))?.subscriptionUntil && new Date((await prisma.user.findUnique({where:{id:String(claims.sub)},select:{subscriptionUntil:true}}))!.subscriptionUntil!)>new Date());
+        const trial=trialIsActive(student?.trialEndsAt),subscribed=Boolean(student?.subscriptionUntil&&student.subscriptionUntil>new Date());
         const activeCourse=Boolean(enrollment?.active),allowed=trial||activeCourse||unlocked||((l.creditCost||0)===0&&subscribed);
         return {
           id:l.id,title:l.title,description:l.description,position:l.position,creditCost:l.creditCost,
