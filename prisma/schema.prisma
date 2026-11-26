@@ -24,7 +24,7 @@ model User {
   comments         Comment[]
   codeEntries      AccessCode[]
   reads            NotificationRead[]
-  referralCode     String?            @unique
+  referralCode     String?
   referredById     String?
   referredBy       User?              @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
   referredUsers    User[]             @relation("UserReferrals")
