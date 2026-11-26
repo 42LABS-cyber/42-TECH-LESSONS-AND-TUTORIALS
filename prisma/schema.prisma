@@ -68,7 +68,6 @@ model Lesson {
   creditCost  Int     @default(0)
   contentBody String? @db.Text
   moduleId    String?
-  position    Int     @default(0)
   status      String  @default("PUBLISHED")
   kind        String  @default("text")
   sourceName  String?
