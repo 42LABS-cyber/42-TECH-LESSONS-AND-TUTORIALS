@@ -11,18 +11,83 @@ const courses = {
 } as const;
 
 type Slug = keyof typeof courses;
+const moduleTopics: Record<Slug,string[][]> = {
+ web:[
+  ["How browsers request pages from web servers","HTML elements, attributes, headings, paragraphs, links and images","Semantic page structure, forms and accessible labels"],
+  ["CSS selectors, cascade, inheritance and specificity","Typography, colour, spacing, borders and the box model","Reusable classes and maintainable stylesheets"],
+  ["Flexbox alignment and spacing","CSS Grid rows, columns and responsive breakpoints","Mobile-first layouts, navigation and image sizing"],
+  ["JavaScript values, variables, operators and conditions","Functions, arrays, loops and event listeners","DOM selection, changing page content and form validation"],
+  ["Project planning, file organisation and testing","Publishing with Git and a hosting platform","Basic accessibility, performance and website maintenance"]
+ ],
+ python:[
+  ["Installing Python and choosing an editor","Running scripts, interactive shell, print and input","Variables, data types, conversion and operators"],
+  ["Boolean expressions and comparisons","if / elif / else decision structures","for and while loops, ranges and loop control"],
+  ["Defining and calling functions","Parameters, return values and scope","Lists, tuples, dictionaries, sets and string methods"],
+  ["Opening, reading and writing text files","Working with paths and structured data","Exceptions, debugging and clear error messages"],
+  ["Breaking a problem into steps","Building a calculator and quiz game","Testing, improving and documenting a small program"]
+ ],
+ cyber:[
+  ["Confidentiality, integrity and availability","Assets, threats, vulnerabilities, likelihood and impact","Security policies, least privilege and defence in depth"],
+  ["Phishing, social engineering and identity theft","Malware types, ransomware and unsafe downloads","Web, email and network attack examples"],
+  ["Password managers and multi-factor authentication","Operating-system updates, backups and device protection","Safe Wi-Fi, router settings and account recovery"],
+  ["IP addresses, DNS, HTTP and common network ports","Encryption in transit and at rest","Hashing, certificates and secure connections"],
+  ["Recognising suspicious activity and preserving evidence","Containment, reporting, recovery and lessons learned","Legal boundaries, consent and ethical security practice"]
+ ],
+ canva:[
+  ["Canva workspace, templates and page setup","Elements, text boxes, shapes, frames and uploads","Export formats, dimensions and quality settings"],
+  ["Visual hierarchy, alignment and spacing","Colour combinations, contrast and readability","Font pairing, consistency and accessibility"],
+  ["Poster purpose, audience and message hierarchy","Using images, icons and calls to action","Preparing print-ready and digital flyer exports"],
+  ["Square, portrait, story and banner dimensions","Designing for Facebook, Instagram and WhatsApp","Keeping brand style consistent across formats"],
+  ["Simple logo and brand identity concepts","Choosing brand colours and type styles","Building a reusable mini brand kit and asset set"]
+ ],
+ office:[
+  ["Hardware, operating systems and desktop basics","Files, folders, extensions and storage","Keyboard shortcuts, safe browsing and device care"],
+  ["Document layout, fonts, paragraphs and lists","Tables, images, headers, footers and page numbers","Saving, exporting PDF and printing documents"],
+  ["Cells, rows, columns and data types","SUM, AVERAGE, MIN, MAX and basic formulas","Sorting, filtering, formatting and simple charts"],
+  ["Slide layouts, themes and visual storytelling","Email subject lines, recipients and attachments","Online safety, professional communication and file sharing"]
+ ],
+ fullstack:[
+  ["Modern JavaScript syntax and asynchronous basics","Components, props, state and reusable UI","Forms, validation, routing and accessible interfaces"],
+  ["HTTP methods, status codes and JSON","REST API route design and input validation","Error handling, logging and API documentation"],
+  ["Relational data, tables, keys and relationships","SQL queries, joins, constraints and indexes","ORM workflows, migrations and data integrity"],
+  ["Authentication versus authorisation","Password hashing, tokens and session lifetimes","Input validation, secrets, permissions and common web risks"],
+  ["Git branches, commits and pull requests","Environment variables and production configuration","Deployments, logs, backups and monitoring"],
+  ["Requirements, wireframes and data modelling","Build a complete app with a tested API","Release checklist, documentation and maintenance plan"]
+ ]
+};
+const moduleActivities: Record<Slug,string[]> = {
+ web:["Create a valid multi-section HTML page and test its links and form labels.","Build a styled profile card and explain the box model used.","Create a responsive landing page that works on a narrow phone screen.","Add a menu toggle and client-side form validation with JavaScript.","Publish a small portfolio site and test it on phone and desktop."],
+ python:["Run a script that asks for a name and prints a formatted greeting.","Write a program that classifies a number using conditions.","Create reusable functions to calculate totals and manage a list of tasks.","Save a set of records to a file and handle a missing-file error.","Complete a command-line quiz or calculator and test edge cases."],
+ cyber:["Write a simple risk register for a personal device or small organisation.","Identify warning signs in sample phishing messages without opening links.","Create a personal account-security and backup checklist.","Explain how HTTPS protects data and why passwords should not be stored as plain text.","Write a short incident-response checklist for a suspected compromised account."],
+ canva:["Create a clean social post using a template, shapes and uploaded assets.","Redesign a crowded layout using hierarchy, spacing and contrast.","Design an event poster with a clear headline, date, venue and call to action.","Export the same campaign in square and story formats.","Create a one-page brand guide with a logo, palette and font choices."],
+ office:["Organise a sample folder structure and identify safe file extensions.","Format a two-page professional letter and export it as PDF.","Build a monthly budget sheet using formulas and a simple chart.","Create a five-slide presentation and draft a professional email with an attachment."],
+ fullstack:["Build a reusable front end with validated forms and clear loading states.","Design and document a small REST API with validation and error responses.","Create related database tables and query them with joins.","Implement a secure sign-in flow with password hashing and access checks.","Deploy an app using environment variables and inspect its runtime logs.","Plan and deliver a small full-stack project with tests and deployment notes."]
+};
+function findGuideKey(slug:string,title:string): Slug|null {
+ const value=(slug+" "+title).toLowerCase();
+ if(value.includes("python"))return "python";
+ if(value.includes("cyber")||value.includes("security"))return "cyber";
+ if(value.includes("canva")||value.includes("graphic")||value.includes("design"))return "canva";
+ if(value.includes("office")||value.includes("computer skill")||value.includes("digital skill"))return "office";
+ if(value.includes("fullstack")||value.includes("full-stack")||value.includes("advanced"))return "fullstack";
+ if(value.includes("web")||value.includes("html")||value.includes("website"))return "web";
+ return null;
+}
 export default async function CoursePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug: rawSlug } = await params;
   const dbCourse = await prisma.course.findUnique({where:{slug:rawSlug},include:{modules:{orderBy:{position:"asc"},include:{lessons:{where:{status:"PUBLISHED"},orderBy:{position:"asc"}}}},lessons:{where:{status:"PUBLISHED"},orderBy:{position:"asc"}}}});
+  const guideKey=findGuideKey(rawSlug,dbCourse?.title||"");
+  const guide=guideKey?courses[guideKey]:null;
   if(dbCourse) return <main className="content-page">
     <Link className="back-link" href="/">← All courses</Link>
     <div className="page-eyebrow">42 TECH / PUBLISHED COURSE</div>
     <h1>{dbCourse.title}</h1><p className="lead">{dbCourse.description}</p>
     <div className="course-facts"><span>{dbCourse.level||"Self-paced"}</span><span>{dbCourse.lessons.length} lessons</span><span>{dbCourse.category}</span><span>${Number(dbCourse.price).toFixed(2)} per month</span></div>
     <p><Link className="page-button" href="/">Sign in or register to start learning</Link></p>
-    <section className="content-panel"><h2>Course curriculum</h2>
-      {dbCourse.modules.length?dbCourse.modules.map((m:any,i:number)=><details key={m.id} open={i===0}><summary>Module {i+1}: {m.title}</summary>{m.lessons.length?<ol>{m.lessons.map((l:any)=><li key={l.id}>{l.title}{l.description?<p>{l.description}</p>:null}</li>)}</ol>:<p>Lessons will be added to this module.</p>}</details>):dbCourse.lessons.length?<ol>{dbCourse.lessons.map((l:any)=><li key={l.id}><b>{l.title}</b>{l.description?<p>{l.description}</p>:null}</li>)}</ol>:<p>Course lessons are being prepared.</p>}
+    <section className="content-panel"><h2>Complete course curriculum</h2><p>This outline shows the published module structure and lesson descriptions. The student dashboard contains protected lesson notes and resources after sign-in and access approval.</p>
+      {dbCourse.modules.length?dbCourse.modules.map((m:any,i:number)=><details key={m.id} open={i===0}><summary>Module {i+1}: {m.title}</summary>{m.lessons.length?<ol>{m.lessons.map((l:any)=><li key={l.id}><b>{l.title}</b>{l.description?<p>{l.description}</p>:<p>Lesson overview and learning material are available inside the student dashboard.</p>}{l.sourceName?<p>Resource: {l.sourceName}</p>:null}{l.sourceUrl?<p><a href={l.sourceUrl} target="_blank" rel="noreferrer">Open related learning resource ↗</a></p>:null}</li>)}</ol>:<p>Lessons for this module are being prepared.</p>}</details>):dbCourse.lessons.length?<ol>{dbCourse.lessons.map((l:any)=><li key={l.id}><b>{l.title}</b>{l.description?<p>{l.description}</p>:<p>Lesson material is available inside the student dashboard when access is active.</p>}</li>)}</ol>:<p>Course lessons are being prepared.</p>}
     </section>
+    {guide&&<><section className="content-panel"><h2>What you will learn</h2><ul>{guide.learn.map(item=><li key={item}>{item}</li>)}</ul><h3>Who this course is for</h3><p>{guide.audience}</p><h3>What you need before starting</h3><p>{guide.requirements}</p></section><section className="content-panel"><h2>Expanded module guide</h2>{guide.modules.map(([moduleName,detail],i)=><details key={moduleName} open={i===0}><summary>Module {i+1}: {moduleName}</summary><p>{detail}</p><h3>Topics covered</h3><ul>{moduleTopics[guideKey!][i].map(topic=><li key={topic}>{topic}</li>)}</ul><h3>Practical activity</h3><p>{moduleActivities[guideKey!][i]}</p></details>)}</section></>}
     {dbCourse.sourceName||dbCourse.sourceUrl?<section className="content-panel"><h2>Source and attribution</h2>{dbCourse.sourceName?<p>Learning source: {dbCourse.sourceName}</p>:null}{dbCourse.sourceUrl?<p><a href={dbCourse.sourceUrl} target="_blank" rel="noreferrer">Visit original learning source ↗</a></p>:null}</section>:null}
     <section className="content-panel"><h2>Access and pricing</h2><p>New students receive seven days of trial access. After the trial, this course costs ${Number(dbCourse.price).toFixed(2)} per month. Payments are reviewed manually before access is activated.</p></section>
     <footer className="content-footer"><Link href="/community">Student community</Link><Link href="/legal#terms">Terms</Link><Link href="/legal#privacy">Privacy</Link><span>© 42 TECH LESSONS & TUTORIALS</span></footer>
@@ -36,7 +101,7 @@ export default async function CoursePage({ params }: { params: Promise<{ slug: s
     <div className="course-facts"><span>{course.level}</span><span>{course.lessons} lessons</span><span>Self-paced</span><span>${course.price.toFixed(2)} per month</span></div>
     <p><Link className="page-button" href="/#courses">Explore courses and register</Link></p>
     <section className="content-panel"><h2>What you will learn</h2><ul>{course.learn.map(item=><li key={item}>{item}</li>)}</ul></section>
-    <section className="content-panel"><h2>Course content</h2>{course.modules.map(([name,detail],i)=><details key={name} open={i===0}><summary>Module {i+1}: {name}</summary><p>{detail}</p></details>)}</section>
+    <section className="content-panel"><h2>Complete module-by-module course guide</h2><p>Each module includes the key concepts to study and a practical task to help you apply what you learn. Lesson notes, exercises and downloadable resources are provided inside the student learning area as they are published.</p>{course.modules.map(([name,detail],i)=><details key={name} open={i===0}><summary>Module {i+1}: {name}</summary><p>{detail}</p><h3>Topics covered</h3><ul>{moduleTopics[rawSlug as Slug]?.[i]?.map(topic=><li key={topic}>{topic}</li>)}</ul><h3>Practical activity</h3><p>{moduleActivities[rawSlug as Slug]?.[i]}</p></details>)}</section>
     <section className="content-panel"><h2>Requirements</h2><p>{course.requirements}</p><h2>Who this is for</h2><p>{course.audience}</p></section>
     <section className="content-panel"><h2>Price and 7-day free trial</h2><p><strong>${course.price.toFixed(2)} per month</strong> after the free trial. New students get seven days of access to all courses. On day eight, access pauses until you pay the monthly fee by EcoCash. No automatic charges. Service currently available in Zimbabwe.</p></section>
     <section className="content-panel"><h2>Questions</h2><details><summary>How does the free trial work?</summary><p>You get seven days of access to all courses free. No payment is needed during the trial.</p></details><details><summary>What happens after seven days?</summary><p>Access pauses until you pay the monthly fee for the course. Nothing is charged automatically.</p></details><details><summary>How do I pay?</summary><p>Pay by EcoCash to 0778671161, then send proof on WhatsApp. The team verifies the payment before unlocking access.</p></details><details><summary>Can I cancel?</summary><p>Yes. Stop paying and the subscription ends. Read the <Link href="/legal#refunds">trial and refund policy</Link>.</p></details></section>
