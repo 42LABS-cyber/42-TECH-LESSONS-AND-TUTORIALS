@@ -19,7 +19,7 @@ export default function BulkImport({token,courses,onDone,onNotice}:{token:string
   try{
    const zip=await JSZip.loadAsync(file);const entries=Object.values(zip.files).filter(x=>!x.dir&&x.name.toLowerCase().endsWith(".pdf")&&x.name.split("/").length>=3);
    const grouped=new Map<string,{course:string;module:string;files:any[];bytes:number}>();
-   for(const entry of entries){const parts=entry.name.split("/");const course=parts[0],module=parts[1],name=parts.slice(2).join("/");if(!course||!module||!name)continue;const key=course+"|||"+module;const item=grouped.get(key)||{course,module,files:[],bytes:0};item.files.push({entry,name});item.bytes+=entry._data?.uncompressedSize||0;grouped.set(key,item)}
+   for(const entry of entries){const parts=entry.name.split("/");const course=parts[0],module=parts[1],name=parts.slice(2).join("/");if(!course||!module||!name)continue;const key=course+"|||"+module;const item=grouped.get(key)||{course,module,files:[],bytes:0};item.files.push({entry,name});item.bytes+=(entry as any)._data?.uncompressedSize||0;grouped.set(key,item)}
    const catalog=[...courses];const moduleMap=new Map<string,any>();
    const total=entries.length;let completed=0;
    for(const group of grouped.values()){
