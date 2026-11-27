@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import JSZip from "jszip";
+import { upload } from "@vercel/blob/client";
 
 type Course={id:string;title:string;price:string|number;modules?:any[]};
 const API="https://42-tech-lessons-and-tutorials.vercel.app/api";
@@ -35,9 +36,8 @@ export default function BulkImport({token,courses,onDone,onNotice}:{token:string
      if(existing.has(title.toLowerCase())){skipped++;completed++;setProgress(Math.round(completed/total*100));continue}
      try{
       const blob=await item.entry.async("blob");if(blob.size>500*1024*1024)throw new Error("File exceeds 500 MB");
-      const uploadInfo=await api("admin/uploads/url",{filename:title+".pdf",contentType:"application/pdf",size:blob.size});
-      await upload(uploadInfo.uploadUrl,blob,uploadInfo.headers||{"Content-Type":"application/pdf"});
-      await api("admin/lessons",{courseId:course.id,moduleId:mod.id,title,description:"Imported from the curated Course1-0 archive. Review the document's rights, accuracy and safety before publishing.",kind:"file",documentPath:uploadInfo.path,filePath:uploadInfo.path,status:"DRAFT",position:(mod.lessons||[]).length});
+      const stored=await upload("course-materials/"+course.id+"/"+mod.id+"/"+title+".pdf",blob,{access:"private",handleUploadUrl:API+"/admin/blob-upload",headers:{Authorization:"Bearer "+token},contentType:"application/pdf"});
+      await api("admin/lessons",{courseId:course.id,moduleId:mod.id,title,description:"Imported from the curated Course1-0 archive. Review the document's rights, accuracy and safety before publishing.",kind:"file",documentPath:stored.pathname,filePath:stored.pathname,status:"DRAFT",position:(mod.lessons||[]).length});
       existing.add(title.toLowerCase());imported++;logs.push("Uploaded draft: "+title);
      }catch(e:any){failed++;logs.push("FAILED: "+title+" — "+e.message)}
      completed++;setProgress(Math.round(completed/total*100));
