@@ -27,7 +27,6 @@ export async function POST(request: Request) {
         console.info("42 TECH private course document uploaded", {
           pathname: blob.pathname,
           contentType: blob.contentType,
-          size: blob.size,
         });
       },
     });
