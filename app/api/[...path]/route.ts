@@ -73,6 +73,7 @@ export async function OPTIONS(req: NextRequest) { return json(req, { ok: true })
 export async function GET(req: NextRequest) {
   const parts = new URL(req.url).pathname.split("/").filter(Boolean).slice(1);
   const path = parts.join("/");
+  if(path.startsWith("admin/")){const claims=requireClaims(req,true);if(!claims)return fail(req,"Administrator sign-in required.",401);}
   try {
     if (path === "health") {
       await prisma.$queryRaw`SELECT 1`;
@@ -242,6 +243,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const parts = new URL(req.url).pathname.split("/").filter(Boolean).slice(1);
   const path = parts.join("/");
+  if(path.startsWith("admin/")&&!["admin/login","admin/passcode-login","admin/bootstrap"].includes(path)){const claims=requireClaims(req,true);if(!claims)return fail(req,"Administrator sign-in required.",401);}
   try {
     if (path === "auth/register") {
       const body = await req.json();
@@ -590,6 +592,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const parts = new URL(req.url).pathname.split("/").filter(Boolean).slice(1);
   const path = parts.join("/");
+  if(path.startsWith("admin/")){const claims=requireClaims(req,true);if(!claims)return fail(req,"Administrator sign-in required.",401);}
   try {
     const body = await req.json();
     if (path === "admin/courses") {
@@ -623,6 +626,7 @@ export async function PATCH(req: NextRequest) {
 }
 export async function DELETE(req: NextRequest) {
   const parts = new URL(req.url).pathname.split("/").filter(Boolean).slice(1);
+  if(parts.join("/").startsWith("admin/")){const claims=requireClaims(req,true);if(!claims)return fail(req,"Administrator sign-in required.",401);}
   try {
     if (parts.join("/") === "admin/community/groups") {
       const id=new URL(req.url).searchParams.get("id")||"";
