@@ -135,6 +135,10 @@ export async function GET(req: NextRequest) {
       const lessons=await prisma.lesson.findMany({orderBy:{position:"asc"},include:{course:{select:{title:true}}}});
       return json(req,{lessons});
     }
+    if (path === "admin/credits/modules") {
+      const modules=await prisma.module.findMany({orderBy:[{courseId:"asc"},{position:"asc"}],include:{course:{select:{title:true}}}});
+      return json(req,{modules});
+    }
     if (path === "admin/credits/codes") {
       const codes=await prisma.redemptionCode.findMany({orderBy:{createdAt:"desc"},take:100,include:{user:{select:{name:true,studentNo:true,email:true}}}});
       return json(req,{codes:codes.map(c=>({...c,amount:c.amount.toString(),status:c.redeemedAt?"USED":c.expiresAt<=new Date()?"EXPIRED":"WAITING"}))});
@@ -214,11 +218,13 @@ export async function GET(req: NextRequest) {
       const lessons = await prisma.lesson.findMany({ where: { courseId, status: "PUBLISHED" }, orderBy: { position: "asc" } });
       const secure = await Promise.all(lessons.map(async l => {
         const unlocked=await prisma.lessonUnlock.findUnique({where:{userId_lessonId:{userId:String(claims.sub),lessonId:l.id}}});
+        const moduleUnlock=l.moduleId?await prisma.moduleUnlock.findUnique({where:{userId_moduleId:{userId:String(claims.sub),moduleId:l.moduleId}}}):null;
+        const module=l.moduleId?await prisma.module.findUnique({where:{id:l.moduleId},select:{id:true,title:true,creditCost:true}}):null;
         const trial=trialIsActive(student?.trialEndsAt),subscribed=Boolean(student?.subscriptionUntil&&student.subscriptionUntil>new Date());
-        const activeCourse=Boolean(enrollment?.active),allowed=trial||activeCourse||unlocked||((l.creditCost||0)===0&&subscribed);
+        const activeCourse=Boolean(enrollment?.active),allowed=trial||activeCourse||subscribed||Boolean(moduleUnlock)||Boolean(unlocked);
         return {
-          id:l.id,title:l.title,description:l.description,position:l.position,creditCost:l.creditCost,kind:l.kind,sourceName:l.sourceName,sourceUrl:l.sourceUrl,
-          accessStatus:trial?"trial":activeCourse?"subscribed":unlocked?"unlocked":allowed?"included":"locked",
+          id:l.id,title:l.title,description:l.description,position:l.position,creditCost:l.creditCost,moduleId:l.moduleId,moduleTitle:module?.title||null,moduleCreditCost:module?.creditCost??null,moduleUnlocked:Boolean(moduleUnlock),kind:l.kind,sourceName:l.sourceName,sourceUrl:l.sourceUrl,
+          accessStatus:trial?"trial":activeCourse?"subscribed":subscribed?"subscribed":moduleUnlock?"module_unlocked":unlocked?"unlocked":"locked",
           videoUrl:allowed&&l.videoUrl?(await storageGetUrl(l.videoUrl)).url:null,
           documentUrl:allowed&&l.documentUrl?(await storageGetUrl(l.documentUrl)).url:null,
           contentBody:allowed?l.contentBody:null,
@@ -313,6 +319,30 @@ export async function POST(req: NextRequest) {
       const result=await prisma.$transaction(async tx=>{const user=await tx.user.findUnique({where:{id:userId}});if(!user)throw new Error("Student not found");if(!user.shareRewarded){await tx.user.update({where:{id:userId},data:{shareRewarded:true,credits:{increment:5}}});await tx.creditLedger.create({data:{userId,delta:5,reason:"share_bonus",note:"Shared referral code"}});}return tx.user.findUnique({where:{id:userId},select:{credits:true,shareRewarded:true}});});
       return json(req,result);
     }
+    if (path === "student/credits/unlock-module") {
+      const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);
+      const body=await req.json(),moduleId=String(body.moduleId||""),userId=String(claims.sub);
+      const result=await prisma.$transaction(async tx=>{
+        const [user,module,already]=await Promise.all([
+          tx.user.findUnique({where:{id:userId}}),
+          tx.module.findUnique({where:{id:moduleId}}),
+          tx.moduleUnlock.findUnique({where:{userId_moduleId:{userId,moduleId}}})
+        ]);
+        if(!user||!module)return {ok:false,error:"not_found"};
+        if(module.creditCost<20)return {ok:false,error:"not_unlockable"};
+        const enrollment=await tx.enrollment.findUnique({where:{userId_courseId:{userId,courseId:module.courseId}}});
+        if(trialIsActive(user.trialEndsAt)||(user.subscriptionUntil&&user.subscriptionUntil>new Date())||enrollment?.active||already)return {ok:true,balance:user.credits,alreadyUnlocked:Boolean(already)};
+        const changed=await tx.user.updateMany({where:{id:userId,credits:{gte:module.creditCost}},data:{credits:{decrement:module.creditCost}}});
+        if(!changed.count)return {ok:false,error:"not_enough",needed:module.creditCost-user.credits,balance:user.credits};
+        await tx.moduleUnlock.create({data:{userId,moduleId}});
+        await tx.creditLedger.create({data:{userId,delta:-module.creditCost,reason:"module_unlock",note:moduleId}});
+        return {ok:true,balance:user.credits-module.creditCost,alreadyUnlocked:false};
+      });
+      if(!result.ok&&result.error==="not_enough")return json(req,result,402);
+      if(!result.ok&&result.error==="not_found")return fail(req,"Module not found.",404);
+      if(!result.ok)return fail(req,"This module cannot be unlocked with credits.",400);
+      return json(req,result);
+    }
     if (path === "student/credits/unlock") {
       const claims=requireClaims(req);if(!claims)return fail(req,"Sign in required",401);const body=await req.json(),lessonId=String(body.lessonId||""),userId=String(claims.sub);
       const result=await prisma.$transaction(async tx=>{
@@ -343,6 +373,12 @@ export async function POST(req: NextRequest) {
       const body=await req.json(),lessonId=String(body.lessonId||""),cost=Number(body.cost);
       if(!Number.isInteger(cost)||cost<0||cost>100000)return fail(req,"Lesson cost must be 0–100000 credits.");
       return json(req,{lesson:await prisma.lesson.update({where:{id:lessonId},data:{creditCost:cost}})});
+    }
+    if (path === "admin/credits/module") {
+      const body=await req.json(),moduleId=String(body.moduleId||""),cost=Number(body.cost);
+      if(!moduleId)return fail(req,"Module ID is required.");
+      if(!Number.isInteger(cost)||cost<20||cost>100000)return fail(req,"Module unlock cost must be at least 20 credits and no more than 100000.");
+      return json(req,{module:await prisma.module.update({where:{id:moduleId},data:{creditCost:cost}})});
     }
     if (path === "admin/credits/codes/generate") {
       const body=await req.json(),studentNo=normaliseStudentNo(body.studentNo),amount=Number(body.amount),kind=String(body.kind||"credits");
@@ -524,7 +560,9 @@ export async function POST(req: NextRequest) {
       const body=await req.json(),courseId=String(body.courseId||""),title=String(body.title||"").trim();
       if(!courseId||title.length<2)return fail(req,"Choose a course and enter a module title.");
       const position=Number(body.position||0);
-      const module=await prisma.module.create({data:{courseId,title,position:Number.isInteger(position)?position:0}});
+      const creditCost=body.creditCost===undefined?20:Number(body.creditCost);
+      if(!Number.isInteger(creditCost)||creditCost<20||creditCost>100000)return fail(req,"Module unlock cost must be at least 20 credits and no more than 100000.");
+      const module=await prisma.module.create({data:{courseId,title,position:Number.isInteger(position)?position:0,creditCost}});
       return json(req,{module},201);
     }
     if (path === "admin/notifications") {
@@ -566,6 +604,13 @@ export async function PATCH(req: NextRequest) {
       if (body.price !== undefined) { const n = Number(body.price); if (n < 1 || n > 10) return fail(req, "Price must be $1–$10."); data.price = n; }
       if (body.published !== undefined) data.published = Boolean(body.published);
       return json(req, { course: await prisma.course.update({ where: { id }, data }) });
+    }
+    if (path === "admin/modules") {
+      const id=String(body.id||""),data:any={};
+      if(body.title!==undefined)data.title=String(body.title).trim();
+      if(body.position!==undefined)data.position=Math.max(0,Number(body.position)||0);
+      if(body.creditCost!==undefined){const cost=Number(body.creditCost);if(!Number.isInteger(cost)||cost<20||cost>100000)return fail(req,"Module unlock cost must be at least 20 credits.");data.creditCost=cost;}
+      return json(req,{module:await prisma.module.update({where:{id},data})});
     }
     if (path === "admin/feedback") {
       const type = body.type === "comment" ? "comment" : "suggestion", id = String(body.id || ""), status = String(body.status || "REVIEWED");
