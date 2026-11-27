@@ -50,6 +50,7 @@ async function storagePutUrl(path: string, contentType: string, visibility: "pri
   return response.json() as Promise<{ url: string; key: string; publicUrl?: string }>;
 }
 async function storageGetUrl(path: string) {
+  if (path.startsWith("course-materials/")) return { url: "/api/course-document?path=" + encodeURIComponent(path) };
   const endpoint = process.env.PRODUCTOS_STORAGE_ENDPOINT!;
   const token = process.env.PRODUCTOS_STORAGE_TOKEN!;
   const response = await fetch(endpoint, {
