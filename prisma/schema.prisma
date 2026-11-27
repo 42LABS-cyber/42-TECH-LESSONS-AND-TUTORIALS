@@ -35,6 +35,7 @@ model User {
   referralsMade    Referral[]         @relation("ReferralReferrer")
   referralReceived Referral?           @relation("ReferralReferee")
   lessonUnlocks    LessonUnlock[]
+  moduleUnlocks    ModuleUnlock[]
   redemptionCodes  RedemptionCode[]
   groupMemberships GroupMember[]
   groupMessages    GroupMessage[]
@@ -233,9 +234,23 @@ model Module {
   position  Int      @default(0)
   createdAt DateTime @default(now())
   course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  creditCost Int      @default(20)
   lessons   Lesson[]
+  unlocks   ModuleUnlock[]
 
   @@index([courseId, position])
+}
+
+model ModuleUnlock {
+  id        String   @id @default(cuid())
+  userId    String
+  moduleId  String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  module    Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, moduleId])
+  @@index([userId, createdAt])
 }
 
 model StudyGroup {
